@@ -1,0 +1,20 @@
+[package]
+name = "man2usage"
+version = "0.1.0"
+authors = ["ynqa <un.pensiero.vano@gmail.com>"]
+edition = "2024"
+description = "Generate Usage specifications from command manuals."
+repository = "https://github.com/ynqa/maqi"
+license = "MIT"
+readme = "README.md"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+flate2 = "1.1.9"
+regex = "1.13.1"
+reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "rustls-tls"] }
+scraper = { version = "0.27.0", default-features = false }
+tempfile = "3.25.0"
+usage-lib = { version = "6.11.1", default-features = false }

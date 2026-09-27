@@ -1,0 +1,23 @@
+.Dd September 27, 2026
+.Dt SAMPLE 1
+.Os
+.Sh NAME
+.Nm sample
+.Nd inspect files
+.Sh SYNOPSIS
+.Nm sample
+.Op Fl v
+.Op Fl o Ar file
+.Op Ar file ...
+.Sh DESCRIPTION
+Inspect the supplied files.
+.Bl -tag -width indent
+.It Fl v , Fl -verbose
+Print additional information.
+.It Fl o Ar file
+Write output to the supplied file.
+.It Fl -mode Ns = Ns Ar kind
+One of: fast|careful.
+.It Fl c Op Ar when
+Use color with an optional value.
+.El
