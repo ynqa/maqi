@@ -1,8 +1,8 @@
 mod completion;
-mod completion_menu;
 mod continuation;
 mod readline;
 mod terminal;
+mod ui;
 mod usage_spec;
 
 use std::io;

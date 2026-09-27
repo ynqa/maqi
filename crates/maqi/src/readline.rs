@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, ops::Range};
 
 use promkit::{
     core::{
@@ -15,9 +15,14 @@ use promkit::{
     widgets::text_editor,
 };
 
-use crate::completion::{self, Completion};
-use crate::completion_menu::CompletionMenu;
+use crate::completion;
 use crate::continuation::needs_continuation;
+use crate::ui::CompletionComponent;
+
+struct CompletionSession {
+    range: Range<usize>,
+    candidates: CompletionComponent,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
@@ -32,7 +37,7 @@ pub struct Readline {
     history: Vec<String>,
     history_position: Option<usize>,
     draft: text_editor::TextEditor,
-    completion: Option<CompletionMenu>,
+    completion: Option<CompletionSession>,
 }
 
 impl Default for Readline {
@@ -87,17 +92,17 @@ impl Readline {
 
         if key.code == KeyCode::Tab && key.modifiers == KeyModifiers::NONE {
             if let Some(menu) = &mut self.completion {
-                menu.selected = (menu.selected + 1) % menu.result.candidates.len();
+                menu.candidates.forward();
             } else if let Some(result) = completion::complete(
                 &self.editor.texteditor.text_without_cursor().to_string(),
                 self.editor.texteditor.position(),
             ) {
                 if result.candidates.len() == 1 {
-                    self.apply_completion(&result, 0);
+                    self.apply_completion(result.range, &result.candidates[0].value);
                 } else {
-                    self.completion = Some(CompletionMenu {
-                        result,
-                        selected: 0,
+                    self.completion = Some(CompletionSession {
+                        range: result.range,
+                        candidates: CompletionComponent::new(result.candidates),
                     });
                 }
             }
@@ -106,17 +111,18 @@ impl Readline {
         if let Some(menu) = &mut self.completion {
             match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, KeyCode::Down) => {
-                    menu.selected = (menu.selected + 1) % menu.result.candidates.len();
+                    menu.candidates.forward();
                     return Action::Continue;
                 }
                 (KeyModifiers::NONE, KeyCode::Up) | (KeyModifiers::SHIFT, KeyCode::BackTab) => {
-                    menu.selected = (menu.selected + menu.result.candidates.len() - 1)
-                        % menu.result.candidates.len();
+                    menu.candidates.backward();
                     return Action::Continue;
                 }
                 (KeyModifiers::NONE, KeyCode::Enter) => {
                     let menu = self.completion.take().unwrap();
-                    self.apply_completion(&menu.result, menu.selected);
+                    if let Some(candidate) = menu.candidates.selected() {
+                        self.apply_completion(menu.range, &candidate.value);
+                    }
                     return Action::Continue;
                 }
                 (KeyModifiers::NONE, KeyCode::Esc) => {
@@ -179,30 +185,26 @@ impl Readline {
         Action::Continue
     }
 
-    fn apply_completion(&mut self, result: &Completion, selected: usize) {
+    fn apply_completion(&mut self, range: Range<usize>, value: &str) {
         let editor = &mut self.editor.texteditor;
         let text: Vec<_> = editor.text_without_cursor().to_string().chars().collect();
-        let value = &result.candidates[selected].value;
-        let mut replacement = value.clone();
-        if text
-            .get(result.range.end)
-            .is_none_or(|ch| !ch.is_whitespace())
-        {
+        let mut replacement = value.to_owned();
+        if text.get(range.end).is_none_or(|ch| !ch.is_whitespace()) {
             replacement.push(' ');
         }
-        let updated: String = text[..result.range.start]
+        let updated: String = text[..range.start]
             .iter()
             .chain(replacement.chars().collect::<Vec<_>>().iter())
-            .chain(text[result.range.end..].iter())
+            .chain(text[range.end..].iter())
             .collect();
         editor.replace(&updated);
-        editor.move_to(result.range.start + replacement.chars().count());
+        editor.move_to(range.start + replacement.chars().count());
     }
 
     pub fn render_items(&self) -> io::Result<[(u8, CreatedGraphemes); 2]> {
         let height = promkit::core::crossterm::terminal::size()?.1;
         let suggestions = if let Some(menu) = &self.completion {
-            let mut content = menu.create_graphemes();
+            let mut content = menu.candidates.create_graphemes();
             content.layout.max_height = Some(5.min(usize::from(height.saturating_sub(1))));
             content
         } else {
