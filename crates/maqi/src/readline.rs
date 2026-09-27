@@ -10,18 +10,14 @@ use promkit::{
         },
         grapheme::StyledGraphemes,
         render::Renderer,
-        ContentPosition, CreatedGraphemes, Widget, WidgetLayout, WidgetPosition, WidthMode,
+        CreatedGraphemes, Widget, WidgetPosition,
     },
     widgets::text_editor,
 };
 
 use crate::completion::{self, Completion};
+use crate::completion_menu::CompletionMenu;
 use crate::continuation::needs_continuation;
-
-struct CompletionMenu {
-    result: Completion,
-    selected: usize,
-}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
@@ -206,33 +202,9 @@ impl Readline {
     pub fn render_items(&self) -> io::Result<[(u8, CreatedGraphemes); 2]> {
         let height = promkit::core::crossterm::terminal::size()?.1;
         let suggestions = if let Some(menu) = &self.completion {
-            CreatedGraphemes {
-                graphemes: StyledGraphemes::from_lines(
-                    menu.result
-                        .candidates
-                        .iter()
-                        .enumerate()
-                        .map(|(index, candidate)| {
-                            StyledGraphemes::from(
-                                format!(
-                                    "{} {}",
-                                    if index == menu.selected { ">" } else { " " },
-                                    candidate.value
-                                )
-                                .as_str(),
-                            )
-                        }),
-                ),
-                layout: WidgetLayout {
-                    max_height: Some(5.min(usize::from(height.saturating_sub(1)))),
-                    width_mode: WidthMode::Truncate,
-                    ..Default::default()
-                },
-                cursor: Some(ContentPosition {
-                    row: menu.selected,
-                    column: 0,
-                }),
-            }
+            let mut content = menu.create_graphemes();
+            content.layout.max_height = Some(5.min(usize::from(height.saturating_sub(1))));
+            content
         } else {
             StyledGraphemes::default().into()
         };

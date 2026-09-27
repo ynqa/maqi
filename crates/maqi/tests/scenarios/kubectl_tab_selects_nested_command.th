@@ -22,9 +22,9 @@ Input tab
 Settle 0ms
 Expect timeout 5000ms:
   r00 |maqi>·kubectl·config·get-·······················|
-  r01 |>·get-clusters··································|
-  r02 |··get-contexts··································|
-  r03 |··get-users·····································|
+  r01 |>·get-clusters··Display·clusters·defined·in·the…|
+  r02 |··get-contexts··Describe·one·or·many·contexts···|
+  r03 |··get-users·····Display·users·defined·in·the·ku…|
   r04 |················································|
   r05 |················································|
   r06 |················································|
@@ -34,9 +34,33 @@ Input tab
 Settle 0ms
 Expect timeout 5000ms:
   r00 |maqi>·kubectl·config·get-·······················|
-  r01 |··get-clusters··································|
-  r02 |>·get-contexts··································|
-  r03 |··get-users·····································|
+  r01 |··get-clusters··Display·clusters·defined·in·the…|
+  r02 |>·get-contexts··Describe·one·or·many·contexts···|
+  r03 |··get-users·····Display·users·defined·in·the·ku…|
+  r04 |················································|
+  r05 |················································|
+  r06 |················································|
+
+Step "narrow the terminal while keeping help on one row per candidate"
+Resize rows 7 cols 32
+Settle 0ms
+Expect timeout 5000ms:
+  r00 |maqi>·kubectl·config·get-·······|
+  r01 |··get-clusters··Display·cluster…|
+  r02 |>·get-contexts··Describe·one·or…|
+  r03 |··get-users·····Display·users·d…|
+  r04 |································|
+  r05 |································|
+  r06 |································|
+
+Step "restore the width and retain the selection"
+Resize rows 7 cols 48
+Settle 0ms
+Expect timeout 5000ms:
+  r00 |maqi>·kubectl·config·get-·······················|
+  r01 |··get-clusters··Display·clusters·defined·in·the…|
+  r02 |>·get-contexts··Describe·one·or·many·contexts···|
+  r03 |··get-users·····Display·users·defined·in·the·ku…|
   r04 |················································|
   r05 |················································|
   r06 |················································|

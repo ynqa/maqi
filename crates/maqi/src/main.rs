@@ -1,4 +1,5 @@
 mod completion;
+mod completion_menu;
 mod continuation;
 mod readline;
 mod terminal;
