@@ -1,6 +1,8 @@
+mod completion;
 mod continuation;
 mod readline;
 mod terminal;
+mod usage_spec;
 
 use std::io;
 
@@ -9,7 +11,6 @@ use promkit::{
     core::{
         crossterm::{event::EventStream, execute, style::Print},
         render::Renderer,
-        Widget,
     },
     TerminalModes, TerminalSession,
 };
@@ -26,9 +27,7 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         readline.reset_input();
-        let renderer =
-            Renderer::try_new_with_graphemes([((), readline.editor.create_graphemes())], true)
-                .await?;
+        let renderer = Renderer::try_new_with_graphemes(readline.render_items()?, true).await?;
 
         let action = loop {
             let Some(event) = events.next().await else {
@@ -38,10 +37,7 @@ async fn main() -> anyhow::Result<()> {
             if action != Action::Continue {
                 break action;
             }
-            renderer
-                .update([((), readline.editor.create_graphemes())])
-                .render()
-                .await?;
+            renderer.update(readline.render_items()?).render().await?;
         };
 
         readline.finish(&renderer).await?;

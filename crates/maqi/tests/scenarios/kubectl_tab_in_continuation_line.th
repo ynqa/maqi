@@ -1,0 +1,56 @@
+Scenario "kubectl_tab_in_continuation_line"
+Command "CARGO_BIN_EXE_maqi"
+Env PATH "/nonexistent"
+Terminal rows 7 cols 32
+Cursor row 1 col 1
+
+Step "show prompt"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect timeout 5000ms:
+  r00 |maqi>···························|
+  r01 |································|
+  r02 |································|
+  r03 |································|
+  r04 |································|
+  r05 |································|
+  r06 |································|
+
+Step "continue a command on the next input line"
+Input "kubectl \"
+Input enter
+Settle 0ms
+Expect timeout 5000ms:
+  r00 |maqi>·kubectl·\·················|
+  r01 |...>····························|
+  r02 |································|
+  r03 |································|
+  r04 |································|
+  r05 |································|
+  r06 |································|
+
+Step "complete using command context from the previous line"
+Input "ge"
+Input tab
+Settle 0ms
+Expect timeout 5000ms:
+  r00 |maqi>·kubectl·\·················|
+  r01 |...>·get························|
+  r02 |································|
+  r03 |································|
+  r04 |································|
+  r05 |································|
+  r06 |································|
+
+Step "submit all completed input lines"
+Input "pods"
+Input enter
+Settle 0ms
+Expect timeout 5000ms:
+  r00 |maqi>·kubectl·\·················|
+  r01 |...>·get·pods···················|
+  r02 |kubectl·\·······················|
+  r03 |get·pods························|
+  r04 |maqi>···························|
+  r05 |································|
+  r06 |································|

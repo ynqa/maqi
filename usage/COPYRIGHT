@@ -1,0 +1,7 @@
+Files: kubectl.usage.kdl
+Copyright: 2014-2025 The Kubernetes Authors
+License: Apache-2.0 (see LICENSE)
+Source: https://github.com/kubernetes/kubernetes
+Manuals: https://manpages.debian.org/unstable/kubernetes-client/kubectl.1.en.html
+Changes: Command descriptions and options were extracted from the man pages
+         and converted to Usage KDL by man2usage.

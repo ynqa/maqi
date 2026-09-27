@@ -8,13 +8,20 @@ use promkit::{
             execute,
             style::{Color, ContentStyle, Print},
         },
+        grapheme::StyledGraphemes,
         render::Renderer,
-        Widget, WidgetPosition,
+        ContentPosition, CreatedGraphemes, Widget, WidgetLayout, WidgetPosition, WidthMode,
     },
     widgets::text_editor,
 };
 
+use crate::completion::{self, Completion};
 use crate::continuation::needs_continuation;
+
+struct CompletionMenu {
+    result: Completion,
+    selected: usize,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
@@ -29,6 +36,7 @@ pub struct Readline {
     history: Vec<String>,
     history_position: Option<usize>,
     draft: text_editor::TextEditor,
+    completion: Option<CompletionMenu>,
 }
 
 impl Default for Readline {
@@ -49,6 +57,7 @@ impl Default for Readline {
             history: Vec::new(),
             history_position: None,
             draft: text_editor::TextEditor::default(),
+            completion: None,
         }
     }
 }
@@ -58,11 +67,13 @@ impl Readline {
         self.editor.texteditor = text_editor::TextEditor::default();
         self.history_position = None;
         self.draft = text_editor::TextEditor::default();
+        self.completion = None;
     }
 
     pub fn handle_event(&mut self, event: Event) -> Action {
         let key = match event {
             Event::Paste(text) => {
+                self.completion = None;
                 // Terminals may use CR, LF, or CRLF for pasted line endings.
                 // Insert the entire payload without interpreting it as keys.
                 let text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -76,6 +87,48 @@ impl Readline {
         };
         if key.kind == KeyEventKind::Release {
             return Action::Continue;
+        }
+
+        if key.code == KeyCode::Tab && key.modifiers == KeyModifiers::NONE {
+            if let Some(menu) = &mut self.completion {
+                menu.selected = (menu.selected + 1) % menu.result.candidates.len();
+            } else if let Some(result) = completion::complete(
+                &self.editor.texteditor.text_without_cursor().to_string(),
+                self.editor.texteditor.position(),
+            ) {
+                if result.candidates.len() == 1 {
+                    self.apply_completion(&result, 0);
+                } else {
+                    self.completion = Some(CompletionMenu {
+                        result,
+                        selected: 0,
+                    });
+                }
+            }
+            return Action::Continue;
+        }
+        if let Some(menu) = &mut self.completion {
+            match (key.modifiers, key.code) {
+                (KeyModifiers::NONE, KeyCode::Down) => {
+                    menu.selected = (menu.selected + 1) % menu.result.candidates.len();
+                    return Action::Continue;
+                }
+                (KeyModifiers::NONE, KeyCode::Up) | (KeyModifiers::SHIFT, KeyCode::BackTab) => {
+                    menu.selected = (menu.selected + menu.result.candidates.len() - 1)
+                        % menu.result.candidates.len();
+                    return Action::Continue;
+                }
+                (KeyModifiers::NONE, KeyCode::Enter) => {
+                    let menu = self.completion.take().unwrap();
+                    self.apply_completion(&menu.result, menu.selected);
+                    return Action::Continue;
+                }
+                (KeyModifiers::NONE, KeyCode::Esc) => {
+                    self.completion = None;
+                    return Action::Continue;
+                }
+                _ => self.completion = None,
+            }
         }
 
         let editor = &mut self.editor.texteditor;
@@ -130,6 +183,62 @@ impl Readline {
         Action::Continue
     }
 
+    fn apply_completion(&mut self, result: &Completion, selected: usize) {
+        let editor = &mut self.editor.texteditor;
+        let text: Vec<_> = editor.text_without_cursor().to_string().chars().collect();
+        let value = &result.candidates[selected].value;
+        let mut replacement = value.clone();
+        if text
+            .get(result.range.end)
+            .is_none_or(|ch| !ch.is_whitespace())
+        {
+            replacement.push(' ');
+        }
+        let updated: String = text[..result.range.start]
+            .iter()
+            .chain(replacement.chars().collect::<Vec<_>>().iter())
+            .chain(text[result.range.end..].iter())
+            .collect();
+        editor.replace(&updated);
+        editor.move_to(result.range.start + replacement.chars().count());
+    }
+
+    pub fn render_items(&self) -> io::Result<[(u8, CreatedGraphemes); 2]> {
+        let height = promkit::core::crossterm::terminal::size()?.1;
+        let suggestions = if let Some(menu) = &self.completion {
+            CreatedGraphemes {
+                graphemes: StyledGraphemes::from_lines(
+                    menu.result
+                        .candidates
+                        .iter()
+                        .enumerate()
+                        .map(|(index, candidate)| {
+                            StyledGraphemes::from(
+                                format!(
+                                    "{} {}",
+                                    if index == menu.selected { ">" } else { " " },
+                                    candidate.value
+                                )
+                                .as_str(),
+                            )
+                        }),
+                ),
+                layout: WidgetLayout {
+                    max_height: Some(5.min(usize::from(height.saturating_sub(1)))),
+                    width_mode: WidthMode::Truncate,
+                    ..Default::default()
+                },
+                cursor: Some(ContentPosition {
+                    row: menu.selected,
+                    column: 0,
+                }),
+            }
+        } else {
+            StyledGraphemes::default().into()
+        };
+        Ok([(0, self.editor.create_graphemes()), (1, suggestions)])
+    }
+
     fn previous_history(&mut self) {
         let Some(position) = self
             .history_position
@@ -161,16 +270,16 @@ impl Readline {
 
     /// Leave the cursor below the entire input, including when it ends on the
     /// bottom row or was submitted while editing an earlier line.
-    pub async fn finish(&mut self, renderer: &Renderer<()>) -> anyhow::Result<()> {
+    pub async fn finish(&mut self, renderer: &Renderer<u8>) -> anyhow::Result<()> {
         self.editor.texteditor.move_to_tail();
         let active_char_style = std::mem::take(&mut self.editor.config.active_char_style);
         let content = self.editor.create_graphemes();
         self.editor.config.active_char_style = active_char_style;
         let cursor = content.cursor.expect("the editor always has a cursor");
-        renderer.update([((), content)]).render().await?;
+        renderer.remove([1]).update([(0, content)]).render().await?;
         let position = renderer
             .screen_position(WidgetPosition {
-                index: (),
+                index: 0,
                 row: cursor.row,
                 column: cursor.column,
             })

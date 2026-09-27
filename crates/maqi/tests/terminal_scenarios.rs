@@ -61,6 +61,38 @@ fn multiline_history_at_input_boundaries() -> Result<()> {
 }
 
 #[test]
+fn kubectl_tab_completes_commands_flags_and_values() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/kubectl_tab_completes_commands_flags_and_values.th"
+    ))?;
+    Ok(())
+}
+
+#[test]
+fn kubectl_tab_selects_nested_command() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/kubectl_tab_selects_nested_command.th"
+    ))?;
+    Ok(())
+}
+
+#[test]
+fn kubectl_completion_menu_dismissal_and_midword_edit() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/kubectl_completion_menu_dismissal_and_midword_edit.th"
+    ))?;
+    Ok(())
+}
+
+#[test]
+fn kubectl_tab_in_continuation_line() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/kubectl_tab_in_continuation_line.th"
+    ))?;
+    Ok(())
+}
+
+#[test]
 fn multiline_paste_can_be_edited_before_enter_submits() -> Result<()> {
     scenario::run_document(include_str!(
         "scenarios/multiline_paste_can_be_edited_before_enter_submits.th"

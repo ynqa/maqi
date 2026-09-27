@@ -19,6 +19,7 @@ anyhow = "1.0.104"
 futures = "0.3.34"
 promkit = { version = "0.17.0", features = ["terminal-session", "texteditor"] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
+usage-lib = { version = "6.11.1", default-features = false }
 
 [dev-dependencies]
 termharness = "0.4.0"
