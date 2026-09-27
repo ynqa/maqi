@@ -22,9 +22,10 @@ async fn main() -> anyhow::Result<()> {
         TerminalSession::try_new(TerminalModes::RAW_MODE | TerminalModes::HIDDEN_CURSOR)?;
     let _paste_mode = terminal::BracketedPaste::enable()?;
     let mut events = EventStream::new();
+    let mut readline = Readline::default();
 
     loop {
-        let mut readline = Readline::default();
+        readline.reset_input();
         let renderer =
             Renderer::try_new_with_graphemes([((), readline.editor.create_graphemes())], true)
                 .await?;

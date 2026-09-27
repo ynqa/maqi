@@ -45,6 +45,22 @@ fn resize_roundtrip_preserves_input() -> Result<()> {
 }
 
 #[test]
+fn history_navigation_restores_draft() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/history_navigation_restores_draft.th"
+    ))?;
+    Ok(())
+}
+
+#[test]
+fn multiline_history_at_input_boundaries() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/multiline_history_at_input_boundaries.th"
+    ))?;
+    Ok(())
+}
+
+#[test]
 fn multiline_paste_can_be_edited_before_enter_submits() -> Result<()> {
     scenario::run_document(include_str!(
         "scenarios/multiline_paste_can_be_edited_before_enter_submits.th"
