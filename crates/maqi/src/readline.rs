@@ -49,8 +49,18 @@ impl Default for Readline {
 
 impl Readline {
     pub fn handle_event(&mut self, event: Event) -> Action {
-        let Event::Key(key) = event else {
-            return Action::Continue;
+        let key = match event {
+            Event::Paste(text) => {
+                // Terminals may use CR, LF, or CRLF for pasted line endings.
+                // Insert the entire payload without interpreting it as keys.
+                let text = text.replace("\r\n", "\n").replace('\r', "\n");
+                for ch in text.chars() {
+                    self.editor.texteditor.insert(ch);
+                }
+                return Action::Continue;
+            }
+            Event::Key(key) => key,
+            _ => return Action::Continue,
         };
         if key.kind == KeyEventKind::Release {
             return Action::Continue;

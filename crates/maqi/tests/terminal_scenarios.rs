@@ -43,3 +43,27 @@ fn resize_roundtrip_preserves_input() -> Result<()> {
     ))?;
     Ok(())
 }
+
+#[test]
+fn multiline_paste_can_be_edited_before_enter_submits() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/multiline_paste_can_be_edited_before_enter_submits.th"
+    ))?;
+    Ok(())
+}
+
+#[test]
+fn pasted_line_endings_and_trailing_newline_remain_editable() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/pasted_line_endings_and_trailing_newline_remain_editable.th"
+    ))?;
+    Ok(())
+}
+
+#[test]
+fn paste_inserts_at_cursor_and_preserves_existing_suffix() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/paste_inserts_at_cursor_and_preserves_existing_suffix.th"
+    ))?;
+    Ok(())
+}

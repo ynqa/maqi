@@ -1,5 +1,6 @@
 mod continuation;
 mod readline;
+mod terminal;
 
 use std::io;
 
@@ -19,6 +20,7 @@ use readline::{Action, Readline};
 async fn main() -> anyhow::Result<()> {
     let _session =
         TerminalSession::try_new(TerminalModes::RAW_MODE | TerminalModes::HIDDEN_CURSOR)?;
+    let _paste_mode = terminal::BracketedPaste::enable()?;
     let mut events = EventStream::new();
 
     loop {
