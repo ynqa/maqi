@@ -1,0 +1,39 @@
+Scenario "pipe_continuation"
+Command "CARGO_BIN_EXE_maqi"
+Terminal rows 6 cols 32
+Cursor row 1 col 1
+
+Step "show the first prompt"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect:
+  r00 |maqi>···························|
+  r01 |································|
+  r02 |································|
+  r03 |································|
+  r04 |································|
+  r05 |································|
+
+Step "Enter continues the incomplete command"
+Input "echo hello |"
+Input enter
+Settle 0ms
+Expect:
+  r00 |maqi>·echo·hello·|··············|
+  r01 |...>····························|
+  r02 |································|
+  r03 |································|
+  r04 |································|
+  r05 |································|
+
+Step "Enter submits the whole multiline input"
+Input "cat"
+Input enter
+Settle 0ms
+Expect:
+  r00 |maqi>·echo·hello·|··············|
+  r01 |...>·cat························|
+  r02 |echo·hello·|····················|
+  r03 |cat·····························|
+  r04 |maqi>···························|
+  r05 |································|

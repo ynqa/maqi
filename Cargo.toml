@@ -1,0 +1,4 @@
+[workspace]
+members = ["crates/maqi"]
+default-members = ["crates/maqi"]
+resolver = "3"

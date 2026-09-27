@@ -1,0 +1,51 @@
+Scenario "wrap_edit_clears_stale_rows"
+Command "CARGO_BIN_EXE_maqi"
+Terminal rows 6 cols 12
+Cursor row 1 col 1
+
+Step "start at the top of the screen"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect:
+  r00 |maqi>·······|
+  r01 |············|
+  r02 |············|
+  r03 |············|
+  r04 |············|
+  r05 |············|
+
+Step "wrap a single input across three rows"
+Input "01-aaaa02-bbbbbbbbb03-cc"
+Settle 0ms
+Expect:
+  r00 |maqi>·01-aaa|
+  r01 |a02-bbbbbbbb|
+  r02 |b03-cc······|
+  r03 |············|
+  r04 |············|
+  r05 |············|
+
+Step "insert at a wrap boundary without losing or duplicating characters"
+Input left 6
+Input "X"
+Settle 0ms
+Expect:
+  r00 |maqi>·01-aaa|
+  r01 |a02-bbbbbbbb|
+  r02 |Xb03-cc·····|
+  r03 |············|
+  r04 |············|
+  r05 |············|
+
+Step "delete back across the wrap boundary and clear the unused row"
+Input backspace
+Input right 6
+Input backspace 7
+Settle 0ms
+Expect:
+  r00 |maqi>·01-aaa|
+  r01 |a02-bbbbbbb·|
+  r02 |············|
+  r03 |············|
+  r04 |············|
+  r05 |············|

@@ -1,0 +1,51 @@
+Scenario "submitted_commands_scrollback"
+Command "CARGO_BIN_EXE_maqi"
+Terminal rows 4 cols 24
+Cursor row 4 col 1
+
+Step "show the prompt at the bottom"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect:
+  r00 |························|
+  r01 |························|
+  r02 |························|
+  r03 |maqi>···················|
+
+Step "submit the first command"
+Input "echo one"
+Input enter
+Settle 0ms
+Expect:
+  r00 |························|
+  r01 |maqi>·echo·one··········|
+  r02 |echo·one················|
+  r03 |maqi>···················|
+
+Step "submit the second command"
+Input "echo two"
+Input enter
+Settle 0ms
+Expect:
+  r00 |echo·one················|
+  r01 |maqi>·echo·two··········|
+  r02 |echo·two················|
+  r03 |maqi>···················|
+
+Step "scroll back to both commands"
+Scroll up 1
+Settle 0ms
+Expect:
+  r00 |maqi>·echo·one··········|
+  r01 |echo·one················|
+  r02 |maqi>·echo·two··········|
+  r03 |echo·two················|
+
+Step "return to the current prompt"
+Scroll down 1
+Settle 0ms
+Expect:
+  r00 |echo·one················|
+  r01 |maqi>·echo·two··········|
+  r02 |echo·two················|
+  r03 |maqi>···················|

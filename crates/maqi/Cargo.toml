@@ -1,0 +1,24 @@
+[package]
+name = "maqi"
+version = "0.1.0"
+authors = ["ynqa <un.pensiero.vano@gmail.com>"]
+edition = "2024"
+description = "A shell reimagined for the AI era."
+repository = "https://github.com/ynqa/maqi"
+# homepage = "https://maqi.ynqa.dev"
+license = "MIT"
+readme = "../../README.md"
+publish = false
+
+[[bin]]
+name = "maqi"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+futures = "0.3.34"
+promkit = { version = "0.17.0", features = ["terminal-session", "texteditor"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+termharness = "0.4.0"

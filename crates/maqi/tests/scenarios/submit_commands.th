@@ -1,0 +1,39 @@
+Scenario "submit_commands"
+Command "CARGO_BIN_EXE_maqi"
+Terminal rows 6 cols 32
+Cursor row 1 col 1
+
+Step "show the first prompt"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect:
+  r00 |maqi>···························|
+  r01 |································|
+  r02 |································|
+  r03 |································|
+  r04 |································|
+  r05 |································|
+
+Step "echo the complete command and start a new prompt"
+Input "echo hello"
+Input enter
+Settle 0ms
+Expect:
+  r00 |maqi>·echo·hello················|
+  r01 |echo·hello······················|
+  r02 |maqi>···························|
+  r03 |································|
+  r04 |································|
+  r05 |································|
+
+Step "accept another command"
+Input "pwd"
+Input enter
+Settle 0ms
+Expect:
+  r00 |maqi>·echo·hello················|
+  r01 |echo·hello······················|
+  r02 |maqi>·pwd·······················|
+  r03 |pwd·····························|
+  r04 |maqi>···························|
+  r05 |································|
