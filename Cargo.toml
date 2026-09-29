@@ -1,4 +1,4 @@
 [workspace]
-members = ["crates/maqi", "crates/man2usage"]
+members = ["crates/andiron", "crates/maqi", "crates/man2usage"]
 default-members = ["crates/maqi"]
 resolver = "3"
