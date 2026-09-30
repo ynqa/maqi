@@ -129,3 +129,11 @@ fn completion_width_resize_without_input() -> Result<()> {
     ))?;
     Ok(())
 }
+
+#[test]
+fn completion_navigation_and_resize() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/completion_navigation_and_resize.th"
+    ))?;
+    Ok(())
+}

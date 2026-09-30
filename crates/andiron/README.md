@@ -7,7 +7,7 @@ supports maqi's input.
 sources, key bindings, and the decision to submit or continue a command.
 `TerminalSession` enables raw input and bracketed paste and restores them on drop.
 
-The renderer uses the terminal's native, visible cursor. It prints text across
+The renderer uses the terminal's native cursor. It prints text across
 the full terminal width, with CRLF between logical lines, and leaves wrapping
 and scrolling to the terminal. It retains component output and measures character
 positions to address the cursor; it does not maintain an editor viewport or a
@@ -18,6 +18,14 @@ waits for 200 ms of stable dimensions, reads the terminal cursor position to loc
 and clear the old reflowed output, then reprints the complete component output.
 Clearing the old location separately from the new drawing location prevents
 abandoned prompts and completion rows from accumulating during width changes.
+
+Normal edits and menu navigation use the retained cursor position without
+requesting a cursor report. The renderer accounts for wrapping and scrolling,
+then writes cursor hiding, text, the final cursor move, and cursor showing in
+one buffer followed by a flush. There is no terminal-response wait between
+painting and restoring the cursor. Position reports are used before the initial
+frame and before repainting after a resize. While a renderer is active, route
+terminal output through it; unrelated writes would invalidate its tracked position.
 
 ## Components
 
@@ -69,6 +77,11 @@ continuation, history, submission, and pasting through the same renderer. The
 `completion_width_resize_without_input.th` regression starts at the bottom of the
 screen, opens completion once, then shrinks and expands repeatedly without typing;
 it also checks scrollback and editing after accepting a completion.
+`completion_navigation_and_resize.th` combines repeated selection movement,
+width changes, and accepting a completion. A separate maqi PTY test replays the
+output byte by byte to check cursor visibility and final position, rejects
+position queries during normal navigation, and rejects queries mid-frame even
+on resize. These transient behaviors are not observable in a final screen snapshot.
 
 These checks use termharness's Alacritty terminal model. This first implementation
 requires cursor-position reports and normal terminal autowrap. It does not

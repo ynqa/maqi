@@ -83,7 +83,7 @@ impl Frame {
             }
         }
         // Materialize the next cell even when the input fills the rightmost
-        // column. This is an ordinary blank; the native cursor remains visible.
+        // column. This ordinary blank gives the native cursor its own cell.
         if cursor_set && frame.cursor == frame.glyphs.len() {
             frame.glyphs.push(Glyph {
                 text: " ".into(),
@@ -131,6 +131,8 @@ struct Position {
 /// terminal. Changed suffixes are printed normally with CRLF at logical newlines.
 /// A resize clears the old frame at its reflowed position, then reprints the
 /// complete component output once the terminal dimensions have settled.
+/// Output and cursor restoration are written together, without querying the
+/// terminal mid-frame. While active, the renderer must own terminal output.
 pub struct Renderer {
     previous: Frame,
     size: Option<Size>,
@@ -163,6 +165,11 @@ impl Renderer {
         let mut size = terminal_size()?;
         let mut resized = self.resize_pending || self.size.is_some_and(|previous| previous != size);
         let actual_row = loop {
+            // Normal edits and menu navigation use the position retained from
+            // the last frame. Only initial placement and reflow need a report.
+            if !resized && self.size.is_some() {
+                break self.cursor_row;
+            }
             if resized {
                 size = settled_size(size)?;
             }
@@ -196,6 +203,7 @@ impl Renderer {
         let mut output = Vec::new();
 
         if changed {
+            queue!(output, cursor::Hide)?;
             let common = self
                 .previous
                 .glyphs
@@ -209,6 +217,13 @@ impl Renderer {
             } else {
                 common.saturating_sub(1)
             };
+            // A newline after a full row has its logical position one column
+            // past the margin. CUP cannot address that pending-wrap position:
+            // clamping it would erase the last cell without repainting it.
+            // Include the last printable glyph to establish the margin again.
+            while start > 0 && old_positions[start].column >= usize::from(size.columns) {
+                start -= 1;
+            }
             let mut from = old_positions[start];
             if origin + (from.row as i64) < 0 {
                 // The changed prefix has left the screen. Re-emit the full
@@ -244,22 +259,33 @@ impl Renderer {
                     queue!(output, PrintStyledContent(glyph.style.apply(&glyph.text)))?;
                 }
             }
-            let mut stdout = io::stdout();
-            stdout.write_all(&output)?;
-            stdout.flush()?;
-            // Output may have scrolled. Let the terminal tell us where it ended.
-            let (_, end_row) = cursor::position()?;
-            origin = i64::from(end_row) - new_positions.last().unwrap().row as i64;
+            // Normal wrapping/CRLF scrolls only when the last output row passes
+            // the bottom margin. Account for that locally, so returning to the
+            // input does not require a round trip with the cursor on the menu.
+            // A full final column is still on its row (deferred autowrap).
+            origin =
+                origin.min(i64::from(size.rows - 1) - new_positions.last().unwrap().row as i64);
         }
 
         let caret = new_positions[next.cursor];
-        execute!(
-            io::stdout(),
+        queue!(
+            output,
             cursor::MoveTo(
                 caret.column.min(usize::from(size.columns - 1)) as u16,
                 screen_row(origin, caret.row, size.rows),
             )
         )?;
+        if changed {
+            queue!(output, cursor::Show)?;
+        }
+        // Include the native cursor's final position and visibility in the same
+        // output buffer as the text. Never flush or wait for input mid-frame.
+        let mut stdout = io::stdout().lock();
+        if let Err(error) = stdout.write_all(&output).and_then(|()| stdout.flush()) {
+            let _ = execute!(stdout, cursor::Show);
+            self.size = None;
+            return Err(error);
+        }
         self.resize_pending = false;
         self.previous = next;
         self.size = Some(size);

@@ -920,6 +920,7 @@ version = "0.1.0"
 dependencies = [
  "andiron",
  "anyhow",
+ "portable-pty",
  "termharness",
  "usage-lib",
 ]

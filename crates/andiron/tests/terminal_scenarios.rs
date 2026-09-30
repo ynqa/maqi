@@ -136,8 +136,9 @@ fn native_cursor_and_cleanup() -> Result {
     });
     let output = session.output();
     assert!(
-        !output.windows(6).any(|s| s == b"\x1b[?25l"),
-        "native cursor must never be hidden"
+        output.windows(6).rposition(|s| s == b"\x1b[?25h")
+            > output.windows(6).rposition(|s| s == b"\x1b[?25l"),
+        "native cursor must be visible after cleanup"
     );
     assert!(
         output.windows(8).any(|s| s == b"\x1b[?2004l"),

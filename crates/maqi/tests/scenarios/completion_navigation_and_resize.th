@@ -1,0 +1,95 @@
+Scenario "completion_navigation_and_resize"
+Command "CARGO_BIN_EXE_maqi"
+Env PATH "/nonexistent"
+Terminal rows 6 cols 40
+Cursor row 6 col 1
+
+Step "start at the bottom"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 250ms
+Expect:
+  r00 |········································|
+  r01 |········································|
+  r02 |········································|
+  r03 |········································|
+  r04 |········································|
+  r05 |maqi>···································|
+
+Step "open completion"
+Input "kubectl "
+Input tab
+Settle 250ms
+Expect:
+  r00 |maqi>·kubectl···························|
+  r01 |>·alpha··········Commands·for·features·…|
+  r02 |··annotate·······Update·the·annotations…|
+  r03 |··api-resources··Print·the·supported·AP…|
+  r04 |··api-versions···Print·the·supported·AP…|
+  r05 |··apply··········Apply·a·configuration·…|
+
+Step "move selection down repeatedly"
+Input down 3
+Settle 250ms
+Expect:
+  r00 |maqi>·kubectl···························|
+  r01 |··alpha··········Commands·for·features·…|
+  r02 |··annotate·······Update·the·annotations…|
+  r03 |··api-resources··Print·the·supported·AP…|
+  r04 |>·api-versions···Print·the·supported·AP…|
+  r05 |··apply··········Apply·a·configuration·…|
+
+Step "widen with the selection preserved"
+Resize rows 6 cols 80
+Settle 250ms
+Expect:
+  r00 |maqi>·kubectl···································································|
+  r01 |··alpha··········Commands·for·features·in·alpha·································|
+  r02 |··annotate·······Update·the·annotations·on·a·resource···························|
+  r03 |··api-resources··Print·the·supported·API·resources·on·the·server················|
+  r04 |>·api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
+  r05 |··apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+
+Step "move to the last visible candidate"
+Input down
+Settle 250ms
+Expect:
+  r00 |maqi>·kubectl···································································|
+  r01 |··alpha··········Commands·for·features·in·alpha·································|
+  r02 |··annotate·······Update·the·annotations·on·a·resource···························|
+  r03 |··api-resources··Print·the·supported·API·resources·on·the·server················|
+  r04 |··api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
+  r05 |>·apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+
+Step "narrow with the selection preserved"
+Resize rows 6 cols 40
+Settle 250ms
+Expect:
+  r00 |maqi>·kubectl···························|
+  r01 |··alpha··········Commands·for·features·…|
+  r02 |··annotate·······Update·the·annotations…|
+  r03 |··api-resources··Print·the·supported·AP…|
+  r04 |··api-versions···Print·the·supported·AP…|
+  r05 |>·apply··········Apply·a·configuration·…|
+
+Step "move back to the first candidate"
+Input up 4
+Settle 250ms
+Expect:
+  r00 |maqi>·kubectl···························|
+  r01 |>·alpha··········Commands·for·features·…|
+  r02 |··annotate·······Update·the·annotations…|
+  r03 |··api-resources··Print·the·supported·AP…|
+  r04 |··api-versions···Print·the·supported·AP…|
+  r05 |··apply··········Apply·a·configuration·…|
+
+Step "accept and keep typing at the input cursor"
+Input enter
+Input "X"
+Settle 250ms
+Expect:
+  r00 |maqi>·kubectl·alpha·X···················|
+  r01 |········································|
+  r02 |········································|
+  r03 |········································|
+  r04 |········································|
+  r05 |········································|
