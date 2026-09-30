@@ -20,6 +20,7 @@ struct Decoder {
     cursor: Option<(u16, u16)>,
     size: Option<Size>,
     in_band: bool,
+    iterm: bool,
     paste: Option<Vec<u8>>,
 }
 impl Decoder {
@@ -49,6 +50,17 @@ impl Decoder {
             if self.bytes.starts_with(b"\x1b\x1b") {
                 self.bytes.remove(0);
                 self.key(KeyCode::Esc, KeyModifiers::NONE);
+                continue;
+            }
+            if self.bytes.starts_with(b"\x1bP") {
+                let Some(end) = self.bytes.windows(2).position(|s| s == b"\x1b\\") else {
+                    break;
+                };
+                // XTVERSION responses are terminal metadata, never typed text.
+                if self.bytes[2..end].starts_with(b">|") {
+                    self.iterm = self.bytes[2..end].starts_with(b">|iTerm2 ");
+                }
+                self.bytes.drain(..end + 2);
                 continue;
             }
             if self.bytes.starts_with(b"\x1b[") {
@@ -207,6 +219,7 @@ struct Reader {
     probe_pending: bool,
     last_probe: Instant,
     geometry_active: bool,
+    version_requested: bool,
 }
 impl Reader {
     fn new() -> io::Result<Self> {
@@ -225,6 +238,7 @@ impl Reader {
             probe_pending: false,
             last_probe: Instant::now(),
             geometry_active: false,
+            version_requested: false,
         })
     }
     fn pump(&mut self, timeout: Duration) -> io::Result<()> {
@@ -363,6 +377,12 @@ fn query_geometry(reader: &mut Reader) -> io::Result<(Size, u16, u16)> {
     reader.decoder.cursor = None;
     reader.decoder.size = None;
     let mut output = io::stdout().lock();
+    if !reader.version_requested {
+        // Query the connected terminal rather than trusting inherited environment
+        // variables (which may name iTerm even inside another terminal emulator).
+        output.write_all(b"\x1b[>0q")?;
+        reader.version_requested = true;
+    }
     output.write_all(b"\x1b[18t\x1b[6n")?;
     output.flush()?;
     drop(output);
@@ -396,11 +416,35 @@ pub(crate) fn reset() {
     READER.with(|reader| *reader.borrow_mut() = None);
 }
 
+pub(crate) fn retains_reflowed_frame() -> io::Result<bool> {
+    with_reader(|reader| Ok(reader.decoder.iterm))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     fn key(code: KeyCode, modifiers: KeyModifiers) -> Event {
         Event::Key(KeyEvent::new(code, modifiers))
+    }
+    #[test]
+    fn fragmented_terminal_identity_does_not_become_input() {
+        for name in ["iTerm2 3.7.3", "XTerm(400)"] {
+            let bytes = format!("a\x1bP>|{name}\x1b\\b\x1b[2;3R");
+            for split in 0..=bytes.len() {
+                let mut decoder = Decoder::default();
+                decoder.feed(&bytes.as_bytes()[..split]);
+                decoder.feed(&bytes.as_bytes()[split..]);
+                assert_eq!(decoder.iterm, name.starts_with("iTerm2 "));
+                assert_eq!(decoder.cursor, Some((2, 1)));
+                assert_eq!(
+                    decoder.events,
+                    [
+                        key(KeyCode::Char('a'), KeyModifiers::NONE),
+                        key(KeyCode::Char('b'), KeyModifiers::NONE),
+                    ]
+                );
+            }
+        }
     }
     #[test]
     fn fragmented_reports_do_not_become_input_or_reorder_keys() {

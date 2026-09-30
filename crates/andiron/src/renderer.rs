@@ -14,7 +14,7 @@ use crossterm::{
 
 use crate::{
     Component, Size,
-    layout::{Frame, Layout},
+    layout::{Frame, Layout, Position},
 };
 
 /// Ownership of an inline region on the normal terminal screen. Resizing
@@ -38,13 +38,16 @@ impl Anchor {
 
 /// An inline painter with a bounded editing viewport. Committed input uses
 /// normal terminal scrolling; uncommitted input and supporting components are
-/// repainted together, without a clearing-only frame or resize debounce.
+/// repainted together. On iTerm, resizing retains the existing terminal frame
+/// until it can be replaced without leaving an offscreen copy.
 pub struct Renderer {
     anchor: Anchor,
     size: Option<Size>,
     previous: Layout,
     frame: Frame,
     pty_size: Option<Size>,
+    observed_size: Option<Size>,
+    retain_reflow: bool,
     refresh_until: Option<Instant>,
 }
 
@@ -56,26 +59,30 @@ impl Renderer {
             previous: Layout::default(),
             frame: Frame::default(),
             pty_size: None,
+            observed_size: None,
+            retain_reflow: false,
             refresh_until: None,
         })
     }
 
     pub fn resize(&mut self) {
         self.anchor = Anchor::Resized(self.anchor.row());
-        self.refresh_until = Some(Instant::now() + Duration::from_millis(250));
+        self.refresh_until = Some(Instant::now() + Duration::from_millis(50));
     }
 
+    /// A resize is settling, or the previous frame is partly outside the screen.
+    /// Continue refreshing. Buffer input when `input_deferred()` is also true.
     pub fn resize_polling(&self) -> bool {
         self.refresh_until.is_some()
     }
 
+    /// On iTerm, retain keys while the old frame is settling or offscreen.
+    /// Other terminals continue to accept edits during resize polling.
+    pub fn input_deferred(&self) -> bool {
+        self.retain_reflow && self.resize_polling()
+    }
+
     pub fn refresh(&mut self, components: &[&dyn Component]) -> io::Result<()> {
-        if self
-            .refresh_until
-            .is_some_and(|until| Instant::now() >= until)
-        {
-            self.refresh_until = None;
-        }
         if matches!(self.anchor, Anchor::Verified(_)) {
             self.anchor = Anchor::Checking(self.anchor.row());
         }
@@ -83,15 +90,30 @@ impl Renderer {
     }
 
     pub fn render(&mut self, components: &[&dyn Component]) -> io::Result<()> {
-        let pty_size = terminal_size()?;
+        self.render_in(components, &mut NativeTerminal)
+    }
+
+    fn render_in(
+        &mut self,
+        components: &[&dyn Component],
+        terminal: &mut impl Terminal,
+    ) -> io::Result<()> {
+        if self
+            .refresh_until
+            .is_some_and(|until| Instant::now() >= until)
+        {
+            self.refresh_until = None;
+        }
+        let pty_size = terminal.size()?;
         let mut size = self.size.unwrap_or(pty_size);
         if self.pty_size.is_some_and(|old| old != pty_size) {
             self.resize();
         }
         let mut origin = self.anchor.row();
+        let mut position = self.previous.cursor;
         let mut geometry_changed = matches!(self.anchor, Anchor::Unmeasured | Anchor::Resized(_));
         if !matches!(self.anchor, Anchor::Verified(_)) {
-            let (actual_size, column, row) = match measure_geometry() {
+            let (actual_size, column, row) = match terminal.geometry() {
                 Ok(report) => report,
                 Err(error) if error.kind() == io::ErrorKind::TimedOut && self.size.is_some() => {
                     // Keep the last complete frame visible if the frontend is
@@ -102,14 +124,37 @@ impl Renderer {
                 }
                 Err(error) => return Err(error),
             };
-            if self.size.is_some_and(|old| old != actual_size) {
-                self.refresh_until = Some(Instant::now() + Duration::from_millis(250));
+            self.retain_reflow = terminal.retains_reflowed_frame()?;
+            let observed = self.observed_size.replace(actual_size);
+            if observed.is_some_and(|old| old != actual_size) {
+                self.refresh_until = Some(Instant::now() + Duration::from_millis(50));
             }
             size = actual_size;
+            if self.retain_reflow && !self.previous.rows.is_empty() {
+                let old = self.size.unwrap();
+                let tail = usize::from(old.rows)
+                    .saturating_sub(usize::from(self.anchor.row()) + self.previous.rows.len());
+                let required = self.previous.reflowed_height(size.columns) + tail;
+                if required > usize::from(size.rows)
+                    || self
+                        .refresh_until
+                        .is_some_and(|until| Instant::now() < until)
+                {
+                    // Retain the terminal's existing frame while resizing, or while
+                    // that frame cannot be replaced without leaving an offscreen copy.
+                    self.frame = Frame::new(components, size)?;
+                    self.pty_size = Some(pty_size);
+                    self.anchor = Anchor::Resized(self.anchor.row());
+                    if required > usize::from(size.rows) {
+                        self.refresh_until = Some(Instant::now() + Duration::from_millis(50));
+                    }
+                    return Ok(());
+                }
+            }
             if self.previous.rows.is_empty() {
                 origin = row;
                 if column != 0 {
-                    execute!(io::stdout(), Print("\r\n"))?;
+                    terminal.write(b"\r\n")?;
                     origin = (row + 1).min(size.rows - 1);
                 }
             } else {
@@ -128,22 +173,25 @@ impl Renderer {
                     .saturating_sub(distance.min(usize::from(u16::MAX)) as u16)
                     .min(origin);
             }
+            position = Position {
+                row: usize::from(row.saturating_sub(origin)),
+                column: usize::from(column),
+            };
         }
-        // Leave horizontal headroom while the frontend is moving. The terminal
-        // may resize again between its geometry reply and processing this frame.
-        // Restore the full width once the resize stream has become quiet.
-        let drawing_size = Size {
-            columns: if self.resize_polling() {
-                size.columns.saturating_sub(8).max(1)
-            } else {
-                size.columns
-            },
-            rows: size.rows,
-        };
+        // The old frame stays visible throughout the resize stream. Once the
+        // geometry has settled, repaint at the full width; arbitrary headroom
+        // cannot protect against a resize to a single column.
+        let drawing_size = size;
         let frame = Frame::new(components, drawing_size)?;
         let layout = Layout::new(&frame, drawing_size);
         geometry_changed |= self.size != Some(size) || origin != self.anchor.row();
-        if !geometry_changed && layout == self.previous {
+        // A round trip can restore the exact old frame without any output.
+        // Do not clear and reprint it merely because resize events occurred.
+        if layout == self.previous
+            && self.size == Some(size)
+            && origin == self.anchor.row()
+            && position == self.previous.cursor
+        {
             self.frame = frame;
             self.anchor = Anchor::Verified(origin);
             self.pty_size = Some(pty_size);
@@ -156,54 +204,57 @@ impl Renderer {
             cursor::Hide,
             DisableLineWrap
         )?;
-        // Clear the old region before scrolling for space. Only committed
-        // output above it may enter scrollback, never obsolete menu rows.
-        if geometry_changed {
-            clear_region(&mut output, origin, size.rows)?;
-        }
-        let extra =
-            (usize::from(origin) + layout.rows.len()).saturating_sub(usize::from(size.rows));
-        if extra != 0 {
-            if !geometry_changed {
-                clear_region(&mut output, origin, size.rows)?;
-            }
-            geometry_changed = true;
-            queue!(output, cursor::MoveTo(0, size.rows - 1))?;
-            for _ in 0..extra {
+        // Like zsh's moveto(), travel relative to the editing region. A CUP
+        // based on a CPR can already be stale when the terminal executes it.
+        // Reserve the replacement's rows before painting any text: scrolling
+        // here can move committed output into history, but not the old menu.
+        let rebuild = geometry_changed || layout.rows.len() > self.previous.rows.len();
+        if rebuild {
+            move_to(&mut output, &mut position, Position::default())?;
+            queue!(output, Clear(ClearType::FromCursorDown))?;
+            let last = layout.rows.len().saturating_sub(1);
+            for _ in 0..last {
                 queue!(output, Print("\r\n"))?;
             }
-            origin = origin.saturating_sub(extra as u16);
-        }
-        if !geometry_changed {
+            position.row = last;
+            origin = origin.min(size.rows.saturating_sub(layout.rows.len() as u16));
+        } else {
             for index in layout.rows.len()..self.previous.rows.len() {
-                queue!(
-                    output,
-                    cursor::MoveTo(0, origin + index as u16),
-                    Clear(ClearType::CurrentLine)
+                move_to(
+                    &mut output,
+                    &mut position,
+                    Position {
+                        row: index,
+                        column: 0,
+                    },
                 )?;
+                queue!(output, Clear(ClearType::CurrentLine))?;
             }
         }
-        for (index, row) in layout.rows.iter().enumerate() {
-            if !geometry_changed && self.previous.rows.get(index) == Some(row) {
+        // Paint back toward the input, ending near the native input cursor.
+        // Supporting rows must never become the cursor's resting position.
+        for (index, row) in layout.rows.iter().enumerate().rev() {
+            if !rebuild && self.previous.rows.get(index) == Some(row) {
                 continue;
             }
-            queue!(output, cursor::MoveTo(0, origin + index as u16))?;
-            if !geometry_changed {
+            move_to(
+                &mut output,
+                &mut position,
+                Position {
+                    row: index,
+                    column: 0,
+                },
+            )?;
+            if !rebuild {
                 queue!(output, Clear(ClearType::CurrentLine))?;
             }
             paint_row(&mut output, row)?;
+            queue!(output, Print("\r"))?;
+            position.column = 0;
         }
-        queue!(
-            output,
-            cursor::MoveTo(
-                layout.cursor.column as u16,
-                origin + layout.cursor.row as u16
-            ),
-            EnableLineWrap,
-            cursor::Show,
-            EndSynchronizedUpdate
-        )?;
-        write_frame(&output)?;
+        move_to(&mut output, &mut position, layout.cursor)?;
+        queue!(output, EnableLineWrap, cursor::Show, EndSynchronizedUpdate)?;
+        terminal.write(&output)?;
         self.anchor = Anchor::Verified(origin);
         self.size = Some(size);
         self.pty_size = Some(pty_size);
@@ -214,9 +265,15 @@ impl Renderer {
 
     /// Commit the complete logical input once, including parts outside the
     /// editing viewport, and leave it in the terminal's native scrollback.
+    /// Returns `WouldBlock` while a resize is pending; refresh and retry rather
+    /// than printing another copy over an inaccessible old frame.
     pub fn finish(&mut self) -> io::Result<()> {
-        let size = terminal_size()?;
-        let origin = self.anchor.row().min(size.rows - 1);
+        if self.input_deferred() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "the previous frame must return to the visible screen before committing",
+            ));
+        }
         let mut output = Vec::new();
         queue!(
             output,
@@ -224,8 +281,9 @@ impl Renderer {
             cursor::Hide,
             EnableLineWrap
         )?;
-        clear_region(&mut output, origin, size.rows)?;
-        queue!(output, cursor::MoveTo(0, origin))?;
+        let mut position = self.previous.cursor;
+        move_to(&mut output, &mut position, Position::default())?;
+        queue!(output, Clear(ClearType::FromCursorDown))?;
         let end = self.frame.focused_end.unwrap_or(self.frame.glyphs.len());
         for glyph in &self.frame.glyphs[..end] {
             if glyph.text == "\n" {
@@ -240,23 +298,51 @@ impl Renderer {
         write_frame(&output)?;
         self.anchor = Anchor::Unmeasured;
         self.size = None;
+        self.observed_size = None;
         self.previous = Layout::default();
         self.frame = Frame::default();
         Ok(())
     }
 }
 
-fn clear_region(output: &mut Vec<u8>, origin: u16, rows: u16) -> io::Result<()> {
-    // Per-row erase avoids terminal-specific clear-screen-to-scrollback
-    // behavior and clears wrapping metadata along with the old cell contents.
-    for row in origin..rows {
-        queue!(
-            output,
-            cursor::MoveTo(0, row),
-            Clear(ClearType::CurrentLine)
-        )?;
+// Cursor movement is relative to the region, never to a saved screen row.
+fn move_to(output: &mut Vec<u8>, current: &mut Position, target: Position) -> io::Result<()> {
+    queue!(output, Print("\r"))?;
+    if current.row > target.row {
+        queue!(output, cursor::MoveUp((current.row - target.row) as u16))?;
+    } else if target.row > current.row {
+        queue!(output, cursor::MoveDown((target.row - current.row) as u16))?;
     }
+    if target.column != 0 {
+        queue!(output, cursor::MoveRight(target.column as u16))?;
+    }
+    *current = target;
     Ok(())
+}
+
+trait Terminal {
+    fn size(&mut self) -> io::Result<Size>;
+    fn geometry(&mut self) -> io::Result<(Size, u16, u16)>;
+    fn write(&mut self, output: &[u8]) -> io::Result<()>;
+    fn retains_reflowed_frame(&mut self) -> io::Result<bool> {
+        Ok(false)
+    }
+}
+
+struct NativeTerminal;
+impl Terminal for NativeTerminal {
+    fn retains_reflowed_frame(&mut self) -> io::Result<bool> {
+        crate::event::retains_reflowed_frame()
+    }
+    fn size(&mut self) -> io::Result<Size> {
+        terminal_size()
+    }
+    fn geometry(&mut self) -> io::Result<(Size, u16, u16)> {
+        crate::event::geometry()
+    }
+    fn write(&mut self, output: &[u8]) -> io::Result<()> {
+        write_frame(output)
+    }
 }
 
 fn write_frame(output: &[u8]) -> io::Result<()> {
@@ -274,10 +360,6 @@ fn terminal_size() -> io::Result<Size> {
         columns: columns.max(1),
         rows: rows.max(1),
     })
-}
-
-fn measure_geometry() -> io::Result<(Size, u16, u16)> {
-    crate::event::geometry()
 }
 
 fn paint_row(output: &mut Vec<u8>, row: &[crate::layout::Glyph]) -> io::Result<()> {
@@ -301,3 +383,7 @@ fn paint_row(output: &mut Vec<u8>, row: &[crate::layout::Glyph]) -> io::Result<(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "renderer_tests.rs"]
+mod tests;

@@ -210,6 +210,7 @@ impl Readline {
 
     /// Remove supporting components and leave the native cursor below the input.
     pub fn finish(&mut self, renderer: &mut Renderer) -> std::io::Result<()> {
+        self.completion = None;
         self.editor.move_to_tail();
         renderer.render(&[&self.editor])?;
         renderer.finish()

@@ -1,6 +1,7 @@
 //! This executable doubles as a tiny PTY fixture, with no libtest output inside
 //! the terminal. Every .th file in scenarios/ is discovered automatically.
 use std::{
+    collections::VecDeque,
     error::Error,
     path::PathBuf,
     time::{Duration, Instant},
@@ -41,6 +42,7 @@ fn fixture() -> Result {
         let mut editor = Editor::default();
         let mut renderer = Renderer::new()?;
         let mut extras = false;
+        let mut pending = VecDeque::new();
         let submit = std::env::args().any(|arg| arg == "--submit");
         loop {
             let mut components: Vec<&dyn Component> = vec![&editor];
@@ -49,10 +51,23 @@ fn fixture() -> Result {
             }
             renderer.render(&components)?;
             let next = loop {
-                if renderer.resize_polling() && !event::poll(Duration::from_millis(16))? {
+                if renderer.input_deferred() {
+                    if event::poll(Duration::from_millis(16))? {
+                        let next = event::read()?;
+                        if matches!(next, Event::Resize(..)) {
+                            renderer.resize();
+                        } else {
+                            pending.push_back(next);
+                        }
+                    }
+                    renderer.refresh(&components)?;
+                } else if renderer.resize_polling() && !event::poll(Duration::from_millis(16))? {
                     renderer.refresh(&components)?;
                 } else {
-                    break event::read()?;
+                    break match pending.pop_front() {
+                        Some(next) => next,
+                        None => event::read()?,
+                    };
                 }
             };
             match next {

@@ -8,7 +8,7 @@ pub use crossterm::event::{
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-pub(crate) use unix::{geometry, reset};
+pub(crate) use unix::{geometry, reset, retains_reflowed_frame};
 #[cfg(unix)]
 pub use unix::{poll, read};
 
@@ -30,3 +30,8 @@ pub(crate) fn geometry() -> std::io::Result<(crate::Size, u16, u16)> {
 
 #[cfg(not(unix))]
 pub(crate) fn reset() {}
+
+#[cfg(not(unix))]
+pub(crate) fn retains_reflowed_frame() -> std::io::Result<bool> {
+    Ok(false)
+}
