@@ -1,44 +1,52 @@
 use termharness::{error::Result, scenario};
 
+// This PTY is backed by termharness, even when cargo was launched in iTerm.
+fn run_document(document: &str) -> Result<scenario::Run> {
+    let mut ast = scenario::parser::parse(document)?;
+    ast.env
+        .insert(0, ("TERM_PROGRAM".into(), "termharness".into()));
+    scenario::run_ast(&ast)
+}
+
 #[test]
 fn submit_commands() -> Result<()> {
-    scenario::run_document(include_str!("scenarios/submit_commands.th"))?;
+    run_document(include_str!("scenarios/submit_commands.th"))?;
     Ok(())
 }
 
 #[test]
 fn backslash_continuation() -> Result<()> {
-    scenario::run_document(include_str!("scenarios/backslash_continuation.th"))?;
+    run_document(include_str!("scenarios/backslash_continuation.th"))?;
     Ok(())
 }
 
 #[test]
 fn pipe_continuation() -> Result<()> {
-    scenario::run_document(include_str!("scenarios/pipe_continuation.th"))?;
+    run_document(include_str!("scenarios/pipe_continuation.th"))?;
     Ok(())
 }
 
 #[test]
 fn edit_continuation() -> Result<()> {
-    scenario::run_document(include_str!("scenarios/edit_continuation.th"))?;
+    run_document(include_str!("scenarios/edit_continuation.th"))?;
     Ok(())
 }
 
 #[test]
 fn submitted_commands_scrollback() -> Result<()> {
-    scenario::run_document(include_str!("scenarios/submitted_commands_scrollback.th"))?;
+    run_document(include_str!("scenarios/submitted_commands_scrollback.th"))?;
     Ok(())
 }
 
 #[test]
 fn wrap_edit_clears_stale_rows() -> Result<()> {
-    scenario::run_document(include_str!("scenarios/wrap_edit_clears_stale_rows.th"))?;
+    run_document(include_str!("scenarios/wrap_edit_clears_stale_rows.th"))?;
     Ok(())
 }
 
 #[test]
 fn resize_roundtrip_preserves_input() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/resize_roundtrip_preserves_input.th"
     ))?;
     Ok(())
@@ -46,7 +54,7 @@ fn resize_roundtrip_preserves_input() -> Result<()> {
 
 #[test]
 fn history_navigation_restores_draft() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/history_navigation_restores_draft.th"
     ))?;
     Ok(())
@@ -54,7 +62,7 @@ fn history_navigation_restores_draft() -> Result<()> {
 
 #[test]
 fn multiline_history_at_input_boundaries() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/multiline_history_at_input_boundaries.th"
     ))?;
     Ok(())
@@ -62,7 +70,7 @@ fn multiline_history_at_input_boundaries() -> Result<()> {
 
 #[test]
 fn kubectl_tab_completes_commands_flags_and_values() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/kubectl_tab_completes_commands_flags_and_values.th"
     ))?;
     Ok(())
@@ -70,7 +78,7 @@ fn kubectl_tab_completes_commands_flags_and_values() -> Result<()> {
 
 #[test]
 fn kubectl_tab_selects_nested_command() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/kubectl_tab_selects_nested_command.th"
     ))?;
     Ok(())
@@ -78,7 +86,7 @@ fn kubectl_tab_selects_nested_command() -> Result<()> {
 
 #[test]
 fn kubectl_completion_menu_dismissal_and_midword_edit() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/kubectl_completion_menu_dismissal_and_midword_edit.th"
     ))?;
     Ok(())
@@ -86,7 +94,7 @@ fn kubectl_completion_menu_dismissal_and_midword_edit() -> Result<()> {
 
 #[test]
 fn kubectl_tab_in_continuation_line() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/kubectl_tab_in_continuation_line.th"
     ))?;
     Ok(())
@@ -94,7 +102,7 @@ fn kubectl_tab_in_continuation_line() -> Result<()> {
 
 #[test]
 fn multiline_paste_can_be_edited_before_enter_submits() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/multiline_paste_can_be_edited_before_enter_submits.th"
     ))?;
     Ok(())
@@ -102,7 +110,7 @@ fn multiline_paste_can_be_edited_before_enter_submits() -> Result<()> {
 
 #[test]
 fn pasted_line_endings_and_trailing_newline_remain_editable() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/pasted_line_endings_and_trailing_newline_remain_editable.th"
     ))?;
     Ok(())
@@ -110,7 +118,7 @@ fn pasted_line_endings_and_trailing_newline_remain_editable() -> Result<()> {
 
 #[test]
 fn paste_inserts_at_cursor_and_preserves_existing_suffix() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/paste_inserts_at_cursor_and_preserves_existing_suffix.th"
     ))?;
     Ok(())
@@ -118,13 +126,13 @@ fn paste_inserts_at_cursor_and_preserves_existing_suffix() -> Result<()> {
 
 #[test]
 fn completion_at_bottom_margin() -> Result<()> {
-    scenario::run_document(include_str!("scenarios/completion_at_bottom_margin.th"))?;
+    run_document(include_str!("scenarios/completion_at_bottom_margin.th"))?;
     Ok(())
 }
 
 #[test]
 fn completion_width_resize_without_input() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/completion_width_resize_without_input.th"
     ))?;
     Ok(())
@@ -132,7 +140,7 @@ fn completion_width_resize_without_input() -> Result<()> {
 
 #[test]
 fn completion_navigation_and_resize() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/completion_navigation_and_resize.th"
     ))?;
     Ok(())
@@ -140,13 +148,13 @@ fn completion_navigation_and_resize() -> Result<()> {
 
 #[test]
 fn completion_extreme_width_burst() -> Result<()> {
-    scenario::run_document(include_str!("scenarios/completion_extreme_width_burst.th"))?;
+    run_document(include_str!("scenarios/completion_extreme_width_burst.th"))?;
     Ok(())
 }
 
 #[test]
 fn completion_extreme_width_preserves_history() -> Result<()> {
-    scenario::run_document(include_str!(
+    run_document(include_str!(
         "scenarios/completion_extreme_width_preserves_history.th"
     ))?;
     Ok(())
@@ -154,7 +162,7 @@ fn completion_extreme_width_preserves_history() -> Result<()> {
 
 #[test]
 fn completion_extreme_width_overflow() -> Result<()> {
-    let result = scenario::run_document(include_str!(
+    let result = run_document(include_str!(
         "scenarios/completion_extreme_width_overflow.th"
     ));
     // Reflow and repaint can interleave differently during a resize burst. The

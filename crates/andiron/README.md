@@ -32,24 +32,27 @@ not become the terminal cursor. No cursor-position query occurs inside a paint
 transaction, and resizing does not deliberately leave a cleared frame on screen
 while waiting for the drag to finish.
 
-A resize invalidates the tracked coordinates. The renderer measures the frontend's
-size and native cursor before replacing the frame, accounting for reflow of the
-rows it actually painted. On Unix, one input reader separates geometry replies
-from keys and bracketed paste. This avoids multiple consumers competing for the
-terminal's input stream. After a frontend answers a size query, the reader probes
-its dimensions while waiting for input: some terminals update their visible grid
-before delivering the corresponding PTY size notification. Unsupported size
-queries fall back to the PTY dimensions. Cursor-position reports are required.
+Terminal I/O uses crossterm on every platform: `event::read`/`poll` for input and
+resize events, `terminal::size` for dimensions, and `cursor::position` for cursor
+reports. There is no separate Unix TTY reader, escape-sequence parser, or signal
+handler. Cursor reports and key events use crossterm's shared input reader.
+The `use-dev-tty` feature selects crossterm's poll-based Unix backend to handle
+simultaneous input and resize readiness; Windows retains its native backend.
 
-iTerm reflows the whole normal screen when its width changes, including rows
-below the input. A sufficiently narrow width can move the active prompt into
-native history before any application output is processed. Repainting another
-prompt then leaves an inaccessible duplicate. The renderer identifies iTerm with
-XTVERSION, rather than inherited environment variables, and retains its existing
-frame throughout the resize stream. After 50 ms without a size change, it replaces
-the frame only if the previous rows and trailing blank rows fit on the screen.
-Otherwise, it waits for sufficient width to return. A round trip that restores the
-same layout and cursor needs no paint output at all.
+A resize invalidates the tracked coordinates. The renderer keeps the current
+frame while resize notifications settle (50 ms, or 250 ms for iTerm's batched OS
+notifications), then measures the native cursor before replacing the frame.
+Refresh ticks check the OS dimensions without sending cursor queries during the
+resize stream. Once the frame is verified, unchanged refreshes need no report.
+
+The renderer identifies iTerm through `TERM_PROGRAM=iTerm.app`, excluding tmux
+and screen sessions (`TMUX`/`STY`). iTerm reflows the whole normal screen when its
+width changes, including rows below the input. A sufficiently narrow width can
+move the active prompt into native history before application output is processed.
+The renderer retains that frame until its previous rows and trailing blank rows
+fit on the screen again. A round trip that restores the same layout and cursor
+needs no paint output at all. This detection depends on the terminal environment;
+custom terminal launchers must preserve it correctly.
 
 While `input_deferred()` is true, the caller must queue input in order and continue
 refreshing. maqi does this for editing, completion, submission, and input intended
@@ -58,8 +61,8 @@ until the previous frame fits again. `finish()` returns `WouldBlock` if a resize
 intervenes before submission; refresh and retry before processing later input.
 No history is erased or scrolled by application commands to conceal old frames.
 
-Other terminals use the relative painter without this retention policy: their
-history-to-screen reflow behavior differs. The iTerm strategy is not a claim of
+Other terminals also wait for resize notifications to settle, but do not hold
+an offscreen frame indefinitely: their history-to-screen reflow behavior differs. The iTerm strategy is not a claim of
 identical extreme-resize behavior in every emulator. A timed-out geometry report
 retains the current frame and is retried.
 
@@ -68,8 +71,9 @@ poll input with a short timeout (maqi uses 16 ms) and call `refresh()` regularly
 Buffer non-resize events when `input_deferred()` is true and drain them in order
 once it becomes false.
 Use `andiron::event::{read, poll}` together on the same thread as the renderer.
-The Unix reader supports UTF-8 text, ordinary editing/function keys and modifiers,
-and bracketed paste; mouse and enhanced keyboard protocols are not enabled.
+`andiron::event` re-exports crossterm's event API. Do not combine this synchronous
+input loop with `EventStream`. Bracketed paste is enabled; mouse and enhanced
+keyboard protocols are not enabled.
 `TerminalSession` restores raw mode, wrapping, cursor visibility and paste mode
 when dropped. Other output must be written between editing sessions, since
 unrelated writes invalidate the renderer's coordinates.
@@ -96,23 +100,25 @@ frame's vertical translation, but rejects duplicate rows, stray text and gaps
 inside the frame. A byte-stream test checks synchronized painting and the native
 input cursor, which final screen snapshots alone cannot observe.
 
-`tests/resize_races/*.th` adds deterministic races using termharness's parser and
-screen with an in-process renderer fixture. Unlike the PTY scenarios, its `Resize`
-action takes effect after the geometry reply, either before output or between
-painting the menu and input (`Env RESIZE_AT "after-menu"`). These scenarios scroll
-to the oldest history and back. The runner additionally checks every retained row:
-all 30 committed history lines must remain in order, with only one input/menu.
-The report/output scenario fails on the previous absolute-coordinate renderer.
+Until release, add behavioral display regressions to the ordinary PTY `.th`
+scenarios in each crate's `tests/scenarios/` directory. These run the complete
+input/render loop, including resize bursts and scrollback checks. The timing of
+resizes relative to cursor reports and paint bytes is controlled by the PTY and
+scheduler; these scenarios do not force a resize at a particular internal
+instruction or assert exact query counts during settling.
 
 The ordinary scenarios use termharness's Alacritty model. They cannot validate
-iTerm's reflow behavior. [The optional iTerm engine tests](tests/iterm/README.md)
-parse `.th` files with termharness and execute their actions against iTerm's parser
-and screen, reading both visible rows and the complete retained history. They
-cover single-column and coarse width streams, keeping a frame at one column,
+iTerm's reflow behavior. All iTerm-specific tests live in the separate `maqi.docs`
+repository: `.th` scenarios in `tools/iterm/scenarios/` and their optional runner
+in `tools/iterm/` (see `tools/iterm/README.md`). The runner parses those files
+with termharness and executes them against iTerm's parser and screen, reading
+both visible rows and the complete retained history. The scenarios cover
+single-column and coarse width streams, keeping a frame at one column,
 ordered queued input, and resuming submission. Every resize-only round trip must
 preserve all retained rows, including interior gaps. Old history and the boundary
 with the active frame are also checked with `Scroll` snapshots.
 
 These are engine tests, not validation of mouse dragging or visual flicker in the
-iTerm GUI. The supplied zsh comparison is isolated and is not evidence that the
-user's normal zsh + kubectl session exhibits the same fault.
+iTerm GUI. Add regression cases as `.th` files in that directory; no exporter,
+Python driver, or Xcode bridge belongs to the andiron crate. The normal
+`cargo test` commands above do not execute this optional iTerm suite.

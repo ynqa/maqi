@@ -6,7 +6,6 @@
 
 mod component;
 mod editor;
-pub mod event;
 mod layout;
 mod renderer;
 mod session;
@@ -16,4 +15,4 @@ pub use editor::Editor;
 pub use renderer::Renderer;
 pub use session::TerminalSession;
 
-pub use crossterm::style;
+pub use crossterm::{event, style};

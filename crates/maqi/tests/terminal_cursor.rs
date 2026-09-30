@@ -115,6 +115,7 @@ impl Replay {
 fn completion_navigation_and_resize_restore_cursor_without_mid_frame_queries() -> Result {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_maqi"));
     command.env("PATH", "/nonexistent");
+    command.env("TERM_PROGRAM", "termharness");
     // Opening the five-row menu forces a scroll, so this also checks the
     // renderer's position tracking when it cannot query the end position.
     let mut session = Session::spawn(command, 6, 80, 0, 5)?;

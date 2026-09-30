@@ -143,6 +143,7 @@ fn expect_cursor(session: &Session, row: usize, column: usize, line: &str) {
 fn native_cursor_and_cleanup() -> Result {
     let mut command = CommandBuilder::new(std::env::current_exe()?);
     command.arg("--fixture");
+    command.env("TERM_PROGRAM", "termharness");
     let mut session = Session::spawn(command, 5, 20, 0, 0)?;
     expect_cursor(&session, 0, 6, "maqi>");
     session.write_input(b"abc")?;
@@ -198,6 +199,8 @@ fn main() -> Result {
         let mut ast = scenario::parser::parse(&std::fs::read_to_string(&path)?)?;
         ast.command = std::env::current_exe()?.to_string_lossy().into_owned();
         ast.args.insert(0, "--fixture".into());
+        ast.env
+            .insert(0, ("TERM_PROGRAM".into(), "termharness".into()));
         eprintln!("scenario: {}", path.display());
         scenario::run_ast(&ast)?;
     }

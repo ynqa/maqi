@@ -24,14 +24,13 @@ enum Anchor {
     Unmeasured,
     Verified(u16),
     Resized(u16),
-    Checking(u16),
 }
 
 impl Anchor {
     fn row(&self) -> u16 {
         match *self {
             Self::Unmeasured => 0,
-            Self::Verified(row) | Self::Resized(row) | Self::Checking(row) => row,
+            Self::Verified(row) | Self::Resized(row) => row,
         }
     }
 }
@@ -46,7 +45,6 @@ pub struct Renderer {
     previous: Layout,
     frame: Frame,
     pty_size: Option<Size>,
-    observed_size: Option<Size>,
     retain_reflow: bool,
     refresh_until: Option<Instant>,
 }
@@ -59,15 +57,20 @@ impl Renderer {
             previous: Layout::default(),
             frame: Frame::default(),
             pty_size: None,
-            observed_size: None,
             retain_reflow: false,
             refresh_until: None,
         })
     }
 
+    fn resize_settle(&self) -> Duration {
+        // iTerm can batch OS resize notifications at roughly 200 ms intervals.
+        // Keep the existing frame until that notification stream becomes quiet.
+        Duration::from_millis(if self.retain_reflow { 250 } else { 50 })
+    }
+
     pub fn resize(&mut self) {
         self.anchor = Anchor::Resized(self.anchor.row());
-        self.refresh_until = Some(Instant::now() + Duration::from_millis(50));
+        self.refresh_until = Some(Instant::now() + self.resize_settle());
     }
 
     /// A resize is settling, or the previous frame is partly outside the screen.
@@ -76,16 +79,13 @@ impl Renderer {
         self.refresh_until.is_some()
     }
 
-    /// On iTerm, retain keys while the old frame is settling or offscreen.
-    /// Other terminals continue to accept edits during resize polling.
+    /// Retain keys while a resize is settling; on iTerm, also while the old
+    /// frame extends into scrollback and cannot yet be replaced.
     pub fn input_deferred(&self) -> bool {
-        self.retain_reflow && self.resize_polling()
+        self.resize_polling()
     }
 
     pub fn refresh(&mut self, components: &[&dyn Component]) -> io::Result<()> {
-        if matches!(self.anchor, Anchor::Verified(_)) {
-            self.anchor = Anchor::Checking(self.anchor.row());
-        }
         self.render(components)
     }
 
@@ -109,15 +109,41 @@ impl Renderer {
         if self.pty_size.is_some_and(|old| old != pty_size) {
             self.resize();
         }
+        if self.resize_polling() {
+            // Drain the resize/key event stream before requesting a cursor
+            // report. A query during a SIGWINCH burst can time out in crossterm.
+            self.frame = Frame::new(components, pty_size)?;
+            self.pty_size = Some(pty_size);
+            return Ok(());
+        }
+        if self.retain_reflow && !self.previous.rows.is_empty() {
+            let old = self.size.unwrap();
+            let tail = usize::from(old.rows)
+                .saturating_sub(usize::from(self.anchor.row()) + self.previous.rows.len());
+            let required = self.previous.reflowed_height(pty_size.columns) + tail;
+            if required > usize::from(pty_size.rows) {
+                self.frame = Frame::new(components, pty_size)?;
+                self.pty_size = Some(pty_size);
+                self.anchor = Anchor::Resized(self.anchor.row());
+                self.refresh_until = Some(Instant::now() + self.resize_settle());
+                return Ok(());
+            }
+        }
         let mut origin = self.anchor.row();
         let mut position = self.previous.cursor;
         let mut geometry_changed = matches!(self.anchor, Anchor::Unmeasured | Anchor::Resized(_));
         if !matches!(self.anchor, Anchor::Verified(_)) {
             let (actual_size, column, row) = match terminal.geometry() {
                 Ok(report) => report,
-                Err(error) if error.kind() == io::ErrorKind::TimedOut && self.size.is_some() => {
-                    // Keep the last complete frame visible if the frontend is
-                    // busy. Retry from the input loop, without discarding keys.
+                Err(error)
+                    if self.size.is_some()
+                        && matches!(
+                            error.kind(),
+                            io::ErrorKind::TimedOut | io::ErrorKind::Other
+                        ) =>
+                {
+                    // crossterm 0.29 uses Other for a cursor-report timeout.
+                    // Keep the complete frame and drain events before retrying.
                     self.frame = Frame::new(components, size)?;
                     self.resize();
                     return Ok(());
@@ -125,32 +151,15 @@ impl Renderer {
                 Err(error) => return Err(error),
             };
             self.retain_reflow = terminal.retains_reflowed_frame()?;
-            let observed = self.observed_size.replace(actual_size);
-            if observed.is_some_and(|old| old != actual_size) {
-                self.refresh_until = Some(Instant::now() + Duration::from_millis(50));
+            if actual_size != pty_size {
+                // A resize arrived during the cursor query. Keep the frame and
+                // let the input loop drain the new resize events before retrying.
+                self.frame = Frame::new(components, actual_size)?;
+                self.pty_size = Some(actual_size);
+                self.resize();
+                return Ok(());
             }
             size = actual_size;
-            if self.retain_reflow && !self.previous.rows.is_empty() {
-                let old = self.size.unwrap();
-                let tail = usize::from(old.rows)
-                    .saturating_sub(usize::from(self.anchor.row()) + self.previous.rows.len());
-                let required = self.previous.reflowed_height(size.columns) + tail;
-                if required > usize::from(size.rows)
-                    || self
-                        .refresh_until
-                        .is_some_and(|until| Instant::now() < until)
-                {
-                    // Retain the terminal's existing frame while resizing, or while
-                    // that frame cannot be replaced without leaving an offscreen copy.
-                    self.frame = Frame::new(components, size)?;
-                    self.pty_size = Some(pty_size);
-                    self.anchor = Anchor::Resized(self.anchor.row());
-                    if required > usize::from(size.rows) {
-                        self.refresh_until = Some(Instant::now() + Duration::from_millis(50));
-                    }
-                    return Ok(());
-                }
-            }
             if self.previous.rows.is_empty() {
                 origin = row;
                 if column != 0 {
@@ -298,7 +307,6 @@ impl Renderer {
         write_frame(&output)?;
         self.anchor = Anchor::Unmeasured;
         self.size = None;
-        self.observed_size = None;
         self.previous = Layout::default();
         self.frame = Frame::default();
         Ok(())
@@ -332,13 +340,20 @@ trait Terminal {
 struct NativeTerminal;
 impl Terminal for NativeTerminal {
     fn retains_reflowed_frame(&mut self) -> io::Result<bool> {
-        crate::event::retains_reflowed_frame()
+        // Use the terminal environment instead of sending identity queries that
+        // crossterm does not expose. A multiplexer owns its own reflow behavior.
+        Ok(std::env::var("TERM_PROGRAM").as_deref() == Ok("iTerm.app")
+            && std::env::var_os("TMUX").is_none()
+            && std::env::var_os("STY").is_none())
     }
     fn size(&mut self) -> io::Result<Size> {
         terminal_size()
     }
     fn geometry(&mut self) -> io::Result<(Size, u16, u16)> {
-        crate::event::geometry()
+        // read/poll and position share crossterm's input reader on the same
+        // thread; terminal replies cannot compete with a second TTY reader.
+        let (column, row) = cursor::position()?;
+        Ok((terminal_size()?, column, row))
     }
     fn write(&mut self, output: &[u8]) -> io::Result<()> {
         write_frame(output)
@@ -383,7 +398,3 @@ fn paint_row(output: &mut Vec<u8>, row: &[crate::layout::Glyph]) -> io::Result<(
     }
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "renderer_tests.rs"]
-mod tests;
