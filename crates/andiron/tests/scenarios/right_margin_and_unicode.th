@@ -1,0 +1,78 @@
+Scenario "right_margin_and_unicode"
+Command "andiron-fixture"
+Terminal rows 4 cols 12
+Cursor row 1 col 1
+
+Step "show prompt"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect:
+  r00 |maqi>·······|
+  r01 |············|
+  r02 |············|
+  r03 |············|
+
+Step "fill the final column"
+Input "123456"
+Settle 0ms
+Expect:
+  r00 |maqi>·123456|
+  r01 |············|
+  r02 |············|
+  r03 |············|
+
+Step "type on the naturally wrapped row"
+Input "X"
+Settle 0ms
+Expect:
+  r00 |maqi>·123456|
+  r01 |X···········|
+  r02 |············|
+  r03 |············|
+
+Step "insert a wide character at the wrap"
+Input left
+Input "界"
+Settle 0ms
+Expect:
+  r00 |maqi>·123456|
+  r01 |界X·········|
+  r02 |············|
+  r03 |············|
+
+Step "remove the wide character"
+Input backspace
+Settle 0ms
+Expect:
+  r00 |maqi>·123456|
+  r01 |X···········|
+  r02 |············|
+  r03 |············|
+
+Step "delete across the wrap"
+Input backspace
+Settle 0ms
+Expect:
+  r00 |maqi>·12345X|
+  r01 |············|
+  r02 |············|
+  r03 |············|
+
+Step "edit after moving back to the tail"
+Input right
+Input "é"
+Settle 0ms
+Expect:
+  r00 |maqi>·12345X|
+  r01 |é···········|
+  r02 |············|
+  r03 |············|
+
+Step "delete the complete combining cluster"
+Input backspace
+Settle 0ms
+Expect:
+  r00 |maqi>·12345X|
+  r01 |············|
+  r02 |············|
+  r03 |············|

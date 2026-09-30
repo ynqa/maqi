@@ -1,0 +1,68 @@
+Scenario "resize_roundtrip"
+Command "andiron-fixture"
+Terminal rows 6 cols 16
+Cursor row 1 col 1
+
+Step "show prompt"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect:
+  r00 |maqi>···········|
+  r01 |················|
+  r02 |················|
+  r03 |················|
+  r04 |················|
+  r05 |················|
+
+Step "type a wrapped input"
+Input "abcdefghijklmnop"
+Settle 0ms
+Expect:
+  r00 |maqi>·abcdefghij|
+  r01 |klmnop··········|
+  r02 |················|
+  r03 |················|
+  r04 |················|
+  r05 |················|
+
+Step "narrow the terminal"
+Resize rows 6 cols 8
+Settle 0ms
+Expect:
+  r00 |maqi>·ab|
+  r01 |cdefghij|
+  r02 |klmnop··|
+  r03 |········|
+  r04 |········|
+  r05 |········|
+
+Step "shrink the terminal height"
+Resize rows 3 cols 8
+Settle 0ms
+Expect:
+  r00 |maqi>·ab|
+  r01 |cdefghij|
+  r02 |klmnop··|
+
+Step "restore original dimensions"
+Resize rows 6 cols 16
+Settle 0ms
+Expect:
+  r00 |maqi>·abcdefghij|
+  r01 |klmnop··········|
+  r02 |················|
+  r03 |················|
+  r04 |················|
+  r05 |················|
+
+Step "insert in the middle after resizing"
+Input left 8
+Input "X"
+Settle 0ms
+Expect:
+  r00 |maqi>·abcdefghXi|
+  r01 |jklmnop·········|
+  r02 |················|
+  r03 |················|
+  r04 |················|
+  r05 |················|

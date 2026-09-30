@@ -1,7 +1,6 @@
-use promkit::core::{
-    ContentPosition, CreatedGraphemes, Widget, WidgetLayout, WidthMode,
-    crossterm::style::{Color, ContentStyle},
-    grapheme::StyledGraphemes,
+use andiron::{
+    Component, Content, Line, Size, Span,
+    style::{Color, ContentStyle},
 };
 
 use crate::completion::Candidate;
@@ -43,51 +42,58 @@ impl CompletionComponent {
     }
 }
 
-impl Widget for CompletionComponent {
-    fn create_graphemes(&self) -> CreatedGraphemes {
-        let values: Vec<_> = self
+impl Component for CompletionComponent {
+    fn render(&self, size: Size) -> Content {
+        let column_width = self
             .candidates
             .iter()
-            .map(|candidate| StyledGraphemes::from(candidate.value.as_str()))
-            .collect();
-        let column_width = values
-            .iter()
-            .map(StyledGraphemes::widths)
+            .map(|candidate| Line::plain(&candidate.value).width())
             .max()
             .unwrap_or(0);
         let help_style = ContentStyle {
             foreground_color: Some(Color::DarkGrey),
             ..Default::default()
         };
-        let lines = self.candidates.iter().zip(values).enumerate().map(
-            |(index, (candidate, mut value))| {
-                let mut line = StyledGraphemes::from(if Some(index) == self.selected {
-                    "> "
-                } else {
-                    "  "
-                });
-                let padding = column_width - value.widths() + 2;
-                line.append(&mut value);
+        let limit = 5.min(usize::from(size.rows.saturating_sub(1)));
+        let start = self
+            .selected
+            .unwrap_or(0)
+            .saturating_sub(limit.saturating_sub(1));
+        let lines = self
+            .candidates
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(limit)
+            .map(|(index, candidate)| {
+                let value = Line::plain(&candidate.value);
+                let padding = column_width - value.width() + 2;
+                let mut line = Line::plain(format!(
+                    "{}{}",
+                    if Some(index) == self.selected {
+                        "> "
+                    } else {
+                        "  "
+                    },
+                    candidate.value
+                ));
                 let help = candidate
                     .help
                     .split_whitespace()
                     .collect::<Vec<_>>()
                     .join(" ");
                 if !help.is_empty() {
-                    line.append(&mut StyledGraphemes::from(" ".repeat(padding)));
-                    line.append(&mut StyledGraphemes::from_str(help, help_style));
+                    line.spans.push(Span::plain(" ".repeat(padding)));
+                    line.spans.push(Span::styled(help, help_style));
                 }
+                line.truncate(usize::from(size.columns));
                 line
-            },
-        );
-        CreatedGraphemes {
-            graphemes: StyledGraphemes::from_lines(lines),
-            layout: WidgetLayout {
-                max_height: Some(5),
-                width_mode: WidthMode::Truncate,
-                ..Default::default()
-            },
-            cursor: self.selected.map(|row| ContentPosition { row, column: 0 }),
+            })
+            .collect();
+        // Selection belongs to the menu; the terminal cursor stays in the editor.
+        Content {
+            lines,
+            cursor: None,
         }
     }
 }
@@ -124,8 +130,11 @@ mod tests {
         component.forward();
         component.backward();
         assert_eq!(component.selected(), None);
-        let content = component.create_graphemes();
-        assert!(content.graphemes.is_empty());
+        let content = component.render(Size {
+            columns: 80,
+            rows: 24,
+        });
+        assert!(content.lines.is_empty());
         assert_eq!(content.cursor, None);
     }
 
@@ -146,21 +155,28 @@ mod tests {
             },
         ]);
         component.forward();
-        let content = component.create_graphemes();
+        let content = component.render(Size {
+            columns: 80,
+            rows: 24,
+        });
         assert_eq!(
-            content.graphemes.to_string(),
+            content
+                .lines
+                .iter()
+                .map(Line::text)
+                .collect::<Vec<_>>()
+                .join("\n"),
             "  \u{754c}    First line continued\n> abc   Second line\n  bare"
         );
-        assert_eq!(content.cursor, Some(ContentPosition { row: 1, column: 0 }));
-        let expected_help = StyledGraphemes::from_str(
-            "First line continued",
-            ContentStyle {
-                foreground_color: Some(Color::DarkGrey),
-                ..Default::default()
-            },
+        assert_eq!(content.cursor, None);
+        assert_eq!(
+            content.lines[0]
+                .spans
+                .last()
+                .unwrap()
+                .style
+                .foreground_color,
+            Some(Color::DarkGrey)
         );
-        let actual_help: StyledGraphemes =
-            content.graphemes.iter().skip(7).take(20).cloned().collect();
-        assert_eq!(actual_help, expected_help);
     }
 }

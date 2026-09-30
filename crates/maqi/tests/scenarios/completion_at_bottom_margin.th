@@ -1,0 +1,42 @@
+Scenario "completion_at_bottom_margin"
+Command "CARGO_BIN_EXE_maqi"
+Env PATH "/nonexistent"
+Terminal rows 4 cols 48
+Cursor row 4 col 1
+
+Step "start at the bottom"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect:
+  r00 |················································|
+  r01 |················································|
+  r02 |················································|
+  r03 |maqi>···········································|
+
+Step "show completion without an extra wrapped blank row"
+Input "kubectl config get-"
+Input tab
+Settle 0ms
+Expect:
+  r00 |maqi>·kubectl·config·get-·······················|
+  r01 |>·get-clusters··Display·clusters·defined·in·the…|
+  r02 |··get-contexts··Describe·one·or·many·contexts···|
+  r03 |··get-users·····Display·users·defined·in·the·ku…|
+
+Step "dismiss the menu"
+Input escape
+Settle 0ms
+Expect:
+  r00 |maqi>·kubectl·config·get-·······················|
+  r01 |················································|
+  r02 |················································|
+  r03 |················································|
+
+Step "continue at the native cursor"
+Input "X"
+Settle 0ms
+Expect:
+  r00 |maqi>·kubectl·config·get-X······················|
+  r01 |················································|
+  r02 |················································|
+  r03 |················································|

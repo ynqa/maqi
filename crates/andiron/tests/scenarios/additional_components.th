@@ -1,0 +1,82 @@
+Scenario "additional_components"
+Command "andiron-fixture"
+Terminal rows 6 cols 24
+Cursor row 1 col 1
+
+Step "show prompt"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect:
+  r00 |maqi>···················|
+  r01 |························|
+  r02 |························|
+  r03 |························|
+  r04 |························|
+  r05 |························|
+
+Step "enter input"
+Input "abcdef"
+Settle 0ms
+Expect:
+  r00 |maqi>·abcdef············|
+  r01 |························|
+  r02 |························|
+  r03 |························|
+  r04 |························|
+  r05 |························|
+
+Step "attach two independent components"
+Input tab
+Settle 0ms
+Expect:
+  r00 |maqi>·abcdef············|
+  r01 |status:·ready···········|
+  r02 |notice:·editable········|
+  r03 |························|
+  r04 |························|
+  r05 |························|
+
+Step "edit with components still attached"
+Input left 3
+Input "X"
+Settle 0ms
+Expect:
+  r00 |maqi>·abcXdef···········|
+  r01 |status:·ready···········|
+  r02 |notice:·editable········|
+  r03 |························|
+  r04 |························|
+  r05 |························|
+
+Step "resize while keeping all components"
+Resize rows 6 cols 20
+Settle 0ms
+Expect:
+  r00 |maqi>·abcXdef·······|
+  r01 |status:·ready·······|
+  r02 |notice:·editable····|
+  r03 |····················|
+  r04 |····················|
+  r05 |····················|
+
+Step "remove both components and clear their output"
+Input escape
+Settle 0ms
+Expect:
+  r00 |maqi>·abcXdef·······|
+  r01 |····················|
+  r02 |····················|
+  r03 |····················|
+  r04 |····················|
+  r05 |····················|
+
+Step "insert at the preserved input cursor"
+Input "Y"
+Settle 0ms
+Expect:
+  r00 |maqi>·abcXYdef······|
+  r01 |····················|
+  r02 |····················|
+  r03 |····················|
+  r04 |····················|
+  r05 |····················|

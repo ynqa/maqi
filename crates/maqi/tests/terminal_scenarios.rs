@@ -115,3 +115,17 @@ fn paste_inserts_at_cursor_and_preserves_existing_suffix() -> Result<()> {
     ))?;
     Ok(())
 }
+
+#[test]
+fn completion_at_bottom_margin() -> Result<()> {
+    scenario::run_document(include_str!("scenarios/completion_at_bottom_margin.th"))?;
+    Ok(())
+}
+
+#[test]
+fn completion_width_resize_without_input() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/completion_width_resize_without_input.th"
+    ))?;
+    Ok(())
+}

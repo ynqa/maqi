@@ -1,18 +1,8 @@
-use std::{io, ops::Range};
+use std::ops::Range;
 
-use promkit::{
-    core::{
-        crossterm::{
-            cursor,
-            event::{Event, KeyCode, KeyEventKind, KeyModifiers},
-            execute,
-            style::{Color, ContentStyle, Print},
-        },
-        grapheme::StyledGraphemes,
-        render::Renderer,
-        CreatedGraphemes, Widget, WidgetPosition,
-    },
-    widgets::text_editor,
+use andiron::{
+    Component, Editor, Renderer,
+    event::{Event, KeyCode, KeyEventKind, KeyModifiers},
 };
 
 use crate::completion;
@@ -32,42 +22,20 @@ pub enum Action {
     Exit,
 }
 
+#[derive(Default)]
 pub struct Readline {
-    pub editor: text_editor::State,
+    pub editor: Editor,
     history: Vec<String>,
     history_position: Option<usize>,
-    draft: text_editor::TextEditor,
+    draft: Editor,
     completion: Option<CompletionSession>,
-}
-
-impl Default for Readline {
-    fn default() -> Self {
-        Self {
-            editor: text_editor::State {
-                config: text_editor::Config {
-                    prefix: "maqi> ".into(),
-                    continuation_prefix: "...> ".into(),
-                    active_char_style: ContentStyle {
-                        background_color: Some(Color::DarkCyan),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            history: Vec::new(),
-            history_position: None,
-            draft: text_editor::TextEditor::default(),
-            completion: None,
-        }
-    }
 }
 
 impl Readline {
     pub fn reset_input(&mut self) {
-        self.editor.texteditor = text_editor::TextEditor::default();
+        self.editor = Editor::default();
         self.history_position = None;
-        self.draft = text_editor::TextEditor::default();
+        self.draft = Editor::default();
         self.completion = None;
     }
 
@@ -75,12 +43,7 @@ impl Readline {
         let key = match event {
             Event::Paste(text) => {
                 self.completion = None;
-                // Terminals may use CR, LF, or CRLF for pasted line endings.
-                // Insert the entire payload without interpreting it as keys.
-                let text = text.replace("\r\n", "\n").replace('\r', "\n");
-                for ch in text.chars() {
-                    self.editor.texteditor.insert(ch);
-                }
+                self.editor.insert_text(&text);
                 return Action::Continue;
             }
             Event::Key(key) => key,
@@ -93,10 +56,9 @@ impl Readline {
         if key.code == KeyCode::Tab && key.modifiers == KeyModifiers::NONE {
             if let Some(menu) = &mut self.completion {
                 menu.candidates.forward();
-            } else if let Some(result) = completion::complete(
-                &self.editor.texteditor.text_without_cursor().to_string(),
-                self.editor.texteditor.position(),
-            ) {
+            } else if let Some(result) =
+                completion::complete(self.editor.text(), self.editor.position())
+            {
                 if result.candidates.len() == 1 {
                     self.apply_completion(result.range, &result.candidates[0].value);
                 } else {
@@ -133,17 +95,17 @@ impl Readline {
             }
         }
 
-        let editor = &mut self.editor.texteditor;
+        let editor = &mut self.editor;
         match (key.modifiers, key.code) {
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Action::Cancel,
             (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
-                if editor.text_without_cursor().is_empty() {
+                if editor.text().is_empty() {
                     return Action::Exit;
                 }
                 editor.erase_forward();
             }
             (KeyModifiers::NONE, KeyCode::Enter) => {
-                let text = editor.text_without_cursor().to_string();
+                let text = editor.text().to_string();
                 if needs_continuation(&text) {
                     editor.insert_newline();
                 } else {
@@ -177,7 +139,7 @@ impl Readline {
             }
             (KeyModifiers::NONE, KeyCode::Backspace) => editor.erase(),
             (KeyModifiers::NONE, KeyCode::Delete) => editor.erase_forward(),
-            (KeyModifiers::CONTROL, KeyCode::Char('u')) => editor.erase_all(),
+            (KeyModifiers::CONTROL, KeyCode::Char('u')) => editor.clear(),
             (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Char(ch)) => editor.insert(ch),
             _ => {}
         }
@@ -186,8 +148,8 @@ impl Readline {
     }
 
     fn apply_completion(&mut self, range: Range<usize>, value: &str) {
-        let editor = &mut self.editor.texteditor;
-        let text: Vec<_> = editor.text_without_cursor().to_string().chars().collect();
+        let editor = &mut self.editor;
+        let text: Vec<_> = editor.text().chars().collect();
         let mut replacement = value.to_owned();
         if text.get(range.end).is_none_or(|ch| !ch.is_whitespace()) {
             replacement.push(' ');
@@ -201,16 +163,12 @@ impl Readline {
         editor.move_to(range.start + replacement.chars().count());
     }
 
-    pub fn render_items(&self) -> io::Result<[(u8, CreatedGraphemes); 2]> {
-        let height = promkit::core::crossterm::terminal::size()?.1;
-        let suggestions = if let Some(menu) = &self.completion {
-            let mut content = menu.candidates.create_graphemes();
-            content.layout.max_height = Some(5.min(usize::from(height.saturating_sub(1))));
-            content
-        } else {
-            StyledGraphemes::default().into()
-        };
-        Ok([(0, self.editor.create_graphemes()), (1, suggestions)])
+    pub fn render(&self, renderer: &mut Renderer) -> std::io::Result<()> {
+        let mut components: Vec<&dyn Component> = vec![&self.editor];
+        if let Some(menu) = &self.completion {
+            components.push(&menu.candidates);
+        }
+        renderer.render(&components)
     }
 
     fn previous_history(&mut self) {
@@ -222,10 +180,10 @@ impl Readline {
             return;
         };
         if self.history_position.is_none() {
-            self.draft = self.editor.texteditor.clone();
+            self.draft = self.editor.clone();
         }
         self.history_position = Some(position);
-        self.editor.texteditor.replace(&self.history[position]);
+        self.editor.replace(&self.history[position]);
     }
 
     fn next_history(&mut self) {
@@ -235,45 +193,32 @@ impl Readline {
         let next = position + 1;
         if next < self.history.len() {
             self.history_position = Some(next);
-            self.editor.texteditor.replace(&self.history[next]);
+            self.editor.replace(&self.history[next]);
         } else {
             self.history_position = None;
-            self.editor.texteditor = self.draft.clone();
+            self.editor = self.draft.clone();
         }
     }
 
-    /// Leave the cursor below the entire input, including when it ends on the
-    /// bottom row or was submitted while editing an earlier line.
-    pub async fn finish(&mut self, renderer: &Renderer<u8>) -> anyhow::Result<()> {
-        self.editor.texteditor.move_to_tail();
-        let active_char_style = std::mem::take(&mut self.editor.config.active_char_style);
-        let content = self.editor.create_graphemes();
-        self.editor.config.active_char_style = active_char_style;
-        let cursor = content.cursor.expect("the editor always has a cursor");
-        renderer.remove([1]).update([(0, content)]).render().await?;
-        let position = renderer
-            .screen_position(WidgetPosition {
-                index: 0,
-                row: cursor.row,
-                column: cursor.column,
-            })
-            .ok_or_else(|| anyhow::anyhow!("input cursor is outside the rendered viewport"))?;
-        execute!(io::stdout(), cursor::MoveTo(0, position.row), Print("\r\n"))?;
-        Ok(())
+    /// Remove supporting components and leave the native cursor below the input.
+    pub fn finish(&mut self, renderer: &mut Renderer) -> std::io::Result<()> {
+        self.editor.move_to_tail();
+        renderer.render(&[&self.editor])?;
+        renderer.finish()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use promkit::core::crossterm::event::KeyEvent;
+    use andiron::event::KeyEvent;
 
     fn key(readline: &mut Readline, code: KeyCode) -> Action {
         readline.handle_event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
     }
 
     fn text(readline: &Readline) -> String {
-        readline.editor.texteditor.text_without_cursor().to_string()
+        readline.editor.text().to_string()
     }
 
     #[test]
@@ -322,12 +267,12 @@ mod tests {
         readline.reset_input();
         readline.handle_event(Event::Paste("first\nlast".into()));
         key(&mut readline, KeyCode::Up);
-        let position = readline.editor.texteditor.position();
+        let position = readline.editor.position();
         key(&mut readline, KeyCode::Up);
         assert_eq!(text(&readline), "saved");
         key(&mut readline, KeyCode::Down);
         assert_eq!(text(&readline), "first\nlast");
-        assert_eq!(readline.editor.texteditor.position(), position);
+        assert_eq!(readline.editor.position(), position);
         key(&mut readline, KeyCode::Char('X'));
         assert_eq!(text(&readline), "firsXt\nlast");
     }

@@ -1,0 +1,52 @@
+Scenario "terminal_scrollback"
+Command "andiron-fixture"
+Terminal rows 3 cols 12
+Cursor row 3 col 1
+
+Step "show prompt on the bottom row"
+WaitFrontendLineStartsWith "maqi>" timeout 5000ms
+Settle 0ms
+Expect:
+  r00 |············|
+  r01 |············|
+  r02 |maqi>·······|
+
+Step "print more logical lines than the screen height"
+Paste "111111\n222222\n333333\n444444"
+Settle 0ms
+Expect:
+  r00 |...>·222222·|
+  r01 |...>·333333·|
+  r02 |...>·444444·|
+
+Step "append at the bottom margin"
+Input "X"
+Settle 0ms
+Expect:
+  r00 |...>·333333·|
+  r01 |...>·444444X|
+  r02 |············|
+
+Step "scroll back to the original input"
+Scroll up 2
+Settle 0ms
+Expect:
+  r00 |maqi>·111111|
+  r01 |...>·222222·|
+  r02 |...>·333333·|
+
+Step "return to live output"
+Scroll down 2
+Settle 0ms
+Expect:
+  r00 |...>·333333·|
+  r01 |...>·444444X|
+  r02 |············|
+
+Step "continue typing without duplicating earlier lines"
+Input "YZ"
+Settle 0ms
+Expect:
+  r00 |...>·333333·|
+  r01 |...>·444444X|
+  r02 |YZ··········|

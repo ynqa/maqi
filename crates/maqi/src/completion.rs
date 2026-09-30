@@ -10,7 +10,7 @@ pub struct Candidate {
 
 #[derive(Debug)]
 pub struct Completion {
-    /// Character indices, matching promkit's editor rather than UTF-8 byte offsets.
+    /// Character indices, matching andiron's editor rather than UTF-8 byte offsets.
     pub range: Range<usize>,
     pub candidates: Vec<Candidate>,
 }
