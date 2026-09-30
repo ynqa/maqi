@@ -47,7 +47,9 @@ name = "andiron"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "libc",
  "portable-pty",
+ "signal-hook 0.3.18",
  "termharness",
  "unicode-segmentation",
  "unicode-width",

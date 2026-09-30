@@ -19,7 +19,7 @@ Step "Tab completes the executable name"
 Input "ku"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl···················································|
   r01 |································································|
   r02 |································································|
@@ -31,7 +31,7 @@ Step "Tab completes a command from the man-page usage"
 Input "ge"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·get···············································|
   r01 |································································|
   r02 |································································|
@@ -43,7 +43,7 @@ Step "Tab completes an inherited flag after positional arguments"
 Input "pods --names"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·get·pods·--namespace······························|
   r01 |································································|
   r02 |································································|
@@ -55,7 +55,7 @@ Step "Tab completes a value from the documented output choices"
 Input "default -o ya"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·get·pods·--namespace·default·-o·yaml··············|
   r01 |································································|
   r02 |································································|

@@ -41,13 +41,21 @@ fn fixture() -> Result {
         let mut editor = Editor::default();
         let mut renderer = Renderer::new()?;
         let mut extras = false;
+        let submit = std::env::args().any(|arg| arg == "--submit");
         loop {
             let mut components: Vec<&dyn Component> = vec![&editor];
             if extras {
                 components.extend([&Status as &dyn Component, &Notice]);
             }
             renderer.render(&components)?;
-            match event::read()? {
+            let next = loop {
+                if renderer.resize_polling() && !event::poll(Duration::from_millis(16))? {
+                    renderer.refresh(&components)?;
+                } else {
+                    break event::read()?;
+                }
+            };
+            match next {
                 Event::Resize(..) => renderer.resize(),
                 Event::Paste(text) => editor.insert_text(&text),
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
@@ -70,6 +78,11 @@ fn fixture() -> Result {
                         (_, KeyCode::Delete) => editor.erase_forward(),
                         (_, KeyCode::Home) => editor.move_to_line_head(),
                         (_, KeyCode::End) => editor.move_to_line_tail(),
+                        (_, KeyCode::Enter) if submit => {
+                            renderer.finish()?;
+                            editor = Editor::default();
+                            extras = false;
+                        }
                         (_, KeyCode::Enter) => editor.insert_newline(),
                         (_, KeyCode::Tab) => extras = !extras,
                         (_, KeyCode::Esc) => extras = false,

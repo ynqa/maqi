@@ -14,17 +14,32 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     pub fn new() -> io::Result<Self> {
+        crate::event::reset();
         let restore_raw = !terminal::is_raw_mode_enabled()?;
         terminal::enable_raw_mode()?;
         let session = Self { restore_raw };
-        execute!(io::stdout(), Show, EnableBracketedPaste)?;
+        execute!(
+            io::stdout(),
+            Show,
+            EnableBracketedPaste,
+            crossterm::style::Print("\x1b[?2048h")
+        )?;
         Ok(session)
     }
 }
 
 impl Drop for TerminalSession {
     fn drop(&mut self) {
-        let _ = execute!(io::stdout(), ResetColor, Show, DisableBracketedPaste);
+        let _ = execute!(
+            io::stdout(),
+            terminal::EnableLineWrap,
+            ResetColor,
+            Show,
+            terminal::EndSynchronizedUpdate,
+            DisableBracketedPaste,
+            crossterm::style::Print("\x1b[?2048l")
+        );
+        crate::event::reset();
         if self.restore_raw {
             let _ = terminal::disable_raw_mode();
         }

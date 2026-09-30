@@ -163,6 +163,14 @@ impl Readline {
         editor.move_to(range.start + replacement.chars().count());
     }
 
+    pub fn refresh(&self, renderer: &mut Renderer) -> std::io::Result<()> {
+        let mut components: Vec<&dyn Component> = vec![&self.editor];
+        if let Some(menu) = &self.completion {
+            components.push(&menu.candidates);
+        }
+        renderer.refresh(&components)
+    }
+
     pub fn render(&self, renderer: &mut Renderer) -> std::io::Result<()> {
         let mut components: Vec<&dyn Component> = vec![&self.editor];
         if let Some(menu) = &self.completion {

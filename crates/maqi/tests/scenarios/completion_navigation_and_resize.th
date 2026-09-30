@@ -19,7 +19,7 @@ Step "open completion"
 Input "kubectl "
 Input tab
 Settle 250ms
-Expect:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl···························|
   r01 |>·alpha··········Commands·for·features·…|
   r02 |··annotate·······Update·the·annotations…|

@@ -23,7 +23,7 @@ Step "open completion once"
 Input "kubectl "
 Input tab
 Settle 250ms
-Expect:
+Expect timeout 10000ms:
   r00 |················································································|
   r01 |················································································|
   r02 |················································································|
@@ -40,120 +40,120 @@ Resize rows 10 cols 60
 Settle 250ms
 Expect:
   r00 |····························································|
-  r01 |····························································|
-  r02 |····························································|
-  r03 |····························································|
-  r04 |maqi>·kubectl···············································|
-  r05 |>·alpha··········Commands·for·features·in·alpha·············|
-  r06 |··annotate·······Update·the·annotations·on·a·resource·······|
-  r07 |··api-resources··Print·the·supported·API·resources·on·the·s…|
-  r08 |··api-versions···Print·the·supported·API·versions·on·the·se…|
-  r09 |··apply··········Apply·a·configuration·to·a·resource·by·fil…|
+  r01 |maqi>·kubectl···············································|
+  r02 |>·alpha··········Commands·for·features·in·alpha·············|
+  r03 |··annotate·······Update·the·annotations·on·a·resource·······|
+  r04 |··api-resources··Print·the·supported·API·resources·on·the·s…|
+  r05 |··api-versions···Print·the·supported·API·versions·on·the·se…|
+  r06 |··apply··········Apply·a·configuration·to·a·resource·by·fil…|
+  r07 |····························································|
+  r08 |····························································|
+  r09 |····························································|
 
 Step "shrink width again without sending any input"
 Resize rows 10 cols 40
 Settle 250ms
 Expect:
-  r00 |········································|
-  r01 |········································|
-  r02 |········································|
-  r03 |········································|
-  r04 |maqi>·kubectl···························|
-  r05 |>·alpha··········Commands·for·features·…|
-  r06 |··annotate·······Update·the·annotations…|
-  r07 |··api-resources··Print·the·supported·AP…|
-  r08 |··api-versions···Print·the·supported·AP…|
-  r09 |··apply··········Apply·a·configuration·…|
+  r00 |maqi>·kubectl···························|
+  r01 |>·alpha··········Commands·for·features·…|
+  r02 |··annotate·······Update·the·annotations…|
+  r03 |··api-resources··Print·the·supported·AP…|
+  r04 |··api-versions···Print·the·supported·AP…|
+  r05 |··apply··········Apply·a·configuration·…|
+  r06 |········································|
+  r07 |········································|
+  r08 |········································|
+  r09 |········································|
 
 Step "continue resizing without input 1"
 Resize rows 10 cols 80
 Settle 250ms
 Expect:
-  r00 |················································································|
-  r01 |················································································|
-  r02 |················································································|
-  r03 |················································································|
-  r04 |maqi>·kubectl···································································|
-  r05 |>·alpha··········Commands·for·features·in·alpha·································|
-  r06 |··annotate·······Update·the·annotations·on·a·resource···························|
-  r07 |··api-resources··Print·the·supported·API·resources·on·the·server················|
-  r08 |··api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
-  r09 |··apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+  r00 |maqi>·kubectl···································································|
+  r01 |>·alpha··········Commands·for·features·in·alpha·································|
+  r02 |··annotate·······Update·the·annotations·on·a·resource···························|
+  r03 |··api-resources··Print·the·supported·API·resources·on·the·server················|
+  r04 |··api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
+  r05 |··apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+  r06 |················································································|
+  r07 |················································································|
+  r08 |················································································|
+  r09 |················································································|
 
 Step "continue resizing without input 2"
 Resize rows 10 cols 60
 Settle 250ms
 Expect:
-  r00 |····························································|
-  r01 |····························································|
-  r02 |····························································|
-  r03 |····························································|
-  r04 |maqi>·kubectl···············································|
-  r05 |>·alpha··········Commands·for·features·in·alpha·············|
-  r06 |··annotate·······Update·the·annotations·on·a·resource·······|
-  r07 |··api-resources··Print·the·supported·API·resources·on·the·s…|
-  r08 |··api-versions···Print·the·supported·API·versions·on·the·se…|
-  r09 |··apply··········Apply·a·configuration·to·a·resource·by·fil…|
+  r00 |maqi>·kubectl···············································|
+  r01 |>·alpha··········Commands·for·features·in·alpha·············|
+  r02 |··annotate·······Update·the·annotations·on·a·resource·······|
+  r03 |··api-resources··Print·the·supported·API·resources·on·the·s…|
+  r04 |··api-versions···Print·the·supported·API·versions·on·the·se…|
+  r05 |··apply··········Apply·a·configuration·to·a·resource·by·fil…|
+  r06 |····························································|
+  r07 |····························································|
+  r08 |····························································|
+  r09 |····························································|
 
 Step "continue resizing without input 3"
 Resize rows 10 cols 40
 Settle 250ms
 Expect:
-  r00 |········································|
-  r01 |········································|
-  r02 |········································|
-  r03 |········································|
-  r04 |maqi>·kubectl···························|
-  r05 |>·alpha··········Commands·for·features·…|
-  r06 |··annotate·······Update·the·annotations…|
-  r07 |··api-resources··Print·the·supported·AP…|
-  r08 |··api-versions···Print·the·supported·AP…|
-  r09 |··apply··········Apply·a·configuration·…|
+  r00 |maqi>·kubectl···························|
+  r01 |>·alpha··········Commands·for·features·…|
+  r02 |··annotate·······Update·the·annotations…|
+  r03 |··api-resources··Print·the·supported·AP…|
+  r04 |··api-versions···Print·the·supported·AP…|
+  r05 |··apply··········Apply·a·configuration·…|
+  r06 |········································|
+  r07 |········································|
+  r08 |········································|
+  r09 |········································|
 
 Step "continue resizing without input 4"
 Resize rows 10 cols 32
 Settle 250ms
 Expect:
-  r00 |································|
-  r01 |································|
-  r02 |································|
-  r03 |································|
-  r04 |maqi>·kubectl···················|
-  r05 |>·alpha··········Commands·for·f…|
-  r06 |··annotate·······Update·the·ann…|
-  r07 |··api-resources··Print·the·supp…|
-  r08 |··api-versions···Print·the·supp…|
-  r09 |··apply··········Apply·a·config…|
+  r00 |maqi>·kubectl···················|
+  r01 |>·alpha··········Commands·for·f…|
+  r02 |··annotate·······Update·the·ann…|
+  r03 |··api-resources··Print·the·supp…|
+  r04 |··api-versions···Print·the·supp…|
+  r05 |··apply··········Apply·a·config…|
+  r06 |································|
+  r07 |································|
+  r08 |································|
+  r09 |································|
 
 Step "continue resizing without input 5"
 Resize rows 10 cols 60
 Settle 250ms
 Expect:
-  r00 |····························································|
-  r01 |····························································|
-  r02 |····························································|
-  r03 |····························································|
-  r04 |maqi>·kubectl···············································|
-  r05 |>·alpha··········Commands·for·features·in·alpha·············|
-  r06 |··annotate·······Update·the·annotations·on·a·resource·······|
-  r07 |··api-resources··Print·the·supported·API·resources·on·the·s…|
-  r08 |··api-versions···Print·the·supported·API·versions·on·the·se…|
-  r09 |··apply··········Apply·a·configuration·to·a·resource·by·fil…|
+  r00 |maqi>·kubectl···············································|
+  r01 |>·alpha··········Commands·for·features·in·alpha·············|
+  r02 |··annotate·······Update·the·annotations·on·a·resource·······|
+  r03 |··api-resources··Print·the·supported·API·resources·on·the·s…|
+  r04 |··api-versions···Print·the·supported·API·versions·on·the·se…|
+  r05 |··apply··········Apply·a·configuration·to·a·resource·by·fil…|
+  r06 |····························································|
+  r07 |····························································|
+  r08 |····························································|
+  r09 |····························································|
 
 Step "continue resizing without input 6"
 Resize rows 10 cols 80
 Settle 250ms
 Expect:
-  r00 |················································································|
-  r01 |················································································|
-  r02 |················································································|
-  r03 |················································································|
-  r04 |maqi>·kubectl···································································|
-  r05 |>·alpha··········Commands·for·features·in·alpha·································|
-  r06 |··annotate·······Update·the·annotations·on·a·resource···························|
-  r07 |··api-resources··Print·the·supported·API·resources·on·the·server················|
-  r08 |··api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
-  r09 |··apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+  r00 |maqi>·kubectl···································································|
+  r01 |>·alpha··········Commands·for·features·in·alpha·································|
+  r02 |··annotate·······Update·the·annotations·on·a·resource···························|
+  r03 |··api-resources··Print·the·supported·API·resources·on·the·server················|
+  r04 |··api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
+  r05 |··apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+  r06 |················································································|
+  r07 |················································································|
+  r08 |················································································|
+  r09 |················································································|
 
 Step "resize in a burst with no input between size changes"
 Resize rows 10 cols 60
@@ -165,16 +165,16 @@ Resize rows 10 cols 40
 Resize rows 10 cols 80
 Settle 250ms
 Expect:
-  r00 |················································································|
-  r01 |················································································|
-  r02 |················································································|
-  r03 |················································································|
-  r04 |maqi>·kubectl···································································|
-  r05 |>·alpha··········Commands·for·features·in·alpha·································|
-  r06 |··annotate·······Update·the·annotations·on·a·resource···························|
-  r07 |··api-resources··Print·the·supported·API·resources·on·the·server················|
-  r08 |··api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
-  r09 |··apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+  r00 |maqi>·kubectl···································································|
+  r01 |>·alpha··········Commands·for·features·in·alpha·································|
+  r02 |··annotate·······Update·the·annotations·on·a·resource···························|
+  r03 |··api-resources··Print·the·supported·API·resources·on·the·server················|
+  r04 |··api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
+  r05 |··apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+  r06 |················································································|
+  r07 |················································································|
+  r08 |················································································|
+  r09 |················································································|
 
 Step "scrollback contains no abandoned prompts or candidates"
 Scroll up 100
@@ -189,33 +189,33 @@ Expect:
   r06 |················································································|
   r07 |················································································|
   r08 |················································································|
-  r09 |················································································|
+  r09 |maqi>·kubectl···································································|
 
 Step "return to the live completion"
 Scroll down 100
 Settle 250ms
 Expect:
-  r00 |················································································|
-  r01 |················································································|
-  r02 |················································································|
-  r03 |················································································|
-  r04 |maqi>·kubectl···································································|
-  r05 |>·alpha··········Commands·for·features·in·alpha·································|
-  r06 |··annotate·······Update·the·annotations·on·a·resource···························|
-  r07 |··api-resources··Print·the·supported·API·resources·on·the·server················|
-  r08 |··api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
-  r09 |··apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+  r00 |maqi>·kubectl···································································|
+  r01 |>·alpha··········Commands·for·features·in·alpha·································|
+  r02 |··annotate·······Update·the·annotations·on·a·resource···························|
+  r03 |··api-resources··Print·the·supported·API·resources·on·the·server················|
+  r04 |··api-versions···Print·the·supported·API·versions·on·the·server,·in·the·form·of…|
+  r05 |··apply··········Apply·a·configuration·to·a·resource·by·filename·or·stdin·······|
+  r06 |················································································|
+  r07 |················································································|
+  r08 |················································································|
+  r09 |················································································|
 
 Step "accept the selection and type at the preserved cursor"
 Input enter
 Input "X"
 Settle 250ms
 Expect:
-  r00 |················································································|
+  r00 |maqi>·kubectl·alpha·X···························································|
   r01 |················································································|
   r02 |················································································|
   r03 |················································································|
-  r04 |maqi>·kubectl·alpha·X···························································|
+  r04 |················································································|
   r05 |················································································|
   r06 |················································································|
   r07 |················································································|

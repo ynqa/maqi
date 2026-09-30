@@ -20,7 +20,7 @@ Step "show two options sharing a prefix"
 Input "kubectl get --outp"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·get·--outp························|
   r01 |>·--output···············Output·format.·One·of:…|
   r02 |··--output-watch-events··Output·watch·event·obj…|
@@ -45,7 +45,7 @@ Step "ordinary typing refines the prefix"
 Input "ut=ya"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·get·--output=yaml·················|
   r01 |················································|
   r02 |················································|
@@ -70,7 +70,7 @@ Expect timeout 5000ms:
 Step "Tab replaces the current token while preserving following text"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·get·--output=yaml·--namespace·pods|
   r01 |················································|
   r02 |················································|

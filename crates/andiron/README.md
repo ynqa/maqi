@@ -3,90 +3,80 @@
 The inline line editor beneath maqi. An andiron supports firewood; this crate
 supports maqi's input.
 
-`Editor` owns the input and grapheme-aware editing. maqi owns history, completion
-sources, key bindings, and the decision to submit or continue a command.
-`TerminalSession` enables raw input and bracketed paste and restores them on drop.
+## Display contract
 
-The renderer uses the terminal's native cursor. It prints text across
-the full terminal width, with CRLF between logical lines, and leaves wrapping
-and scrolling to the terminal. It retains component output and measures character
-positions to address the cursor; it does not maintain an editor viewport or a
-screen-sized grid. An unchanged prefix is left in place, and a changed suffix is
-cleared and printed again. Call `Renderer::resize()` when receiving a resize
-event, including when a burst returns to the original dimensions. The renderer
-waits for 200 ms of stable dimensions, reads the terminal cursor position to locate
-and clear the old reflowed output, then reprints the complete component output.
-Clearing the old location separately from the new drawing location prevents
-abandoned prompts and completion rows from accumulating during width changes.
+andiron uses the normal terminal screen. Submitted input and command output stay
+in the terminal's native scrollback; the terminal continues to own scrolling and
+history. It does not enter an alternate screen or maintain a replacement history.
+This shell-like behavior is the specification shared with reedline. The layout,
+input routing, and painting implementation are independent.
 
-Normal edits and menu navigation use the retained cursor position without
-requesting a cursor report. The renderer accounts for wrapping and scrolling,
-then writes cursor hiding, text, the final cursor move, and cursor showing in
-one buffer followed by a flush. There is no terminal-response wait between
-painting and restoring the cursor. Position reports are used before the initial
-frame and before repainting after a resize. While a renderer is active, route
-terminal output through it; unrelated writes would invalidate its tracked position.
+`Editor` owns grapheme-aware input. maqi owns completion sources, history and key
+bindings. Components return logical lines and at most one input cursor. The
+renderer turns those lines into physical rows, keeping the editing cursor inside
+a bounded viewport when the input is taller than the screen. Supporting rows are
+clipped to the available width and height. Hidden input remains editable; on
+submission, `Renderer::finish` writes the complete logical input to the normal
+terminal exactly once. Completion rows are removed before submission.
 
-## Components
+## Painting and resize handling
 
-Implement `Component` to return logical `Line`s containing plain or styled
-`Span`s. Pass components to `Renderer::render` in display order. Only the focused
-component supplies a `TextPosition`; completion selection does not take the
-terminal cursor away from the editor. Components may choose their own presentation
-limits, such as maqi's five-row completion list.
+The renderer retains the previous physical rows. Normal edits repaint only changed
+rows. Cursor hiding, clearing, painting and restoring the input cursor are sent
+in one synchronized-output transaction and one flush. Completion selection does
+not become the terminal cursor. No cursor-position query occurs inside a paint
+transaction, and resizing does not deliberately leave a cleared frame on screen
+while waiting for the drag to finish.
 
-```rust
-use andiron::{Component, Content, Editor, Line, Size};
+A resize invalidates the tracked coordinates. The renderer measures the frontend's
+size and native cursor before replacing the frame, accounting for reflow of the
+rows it actually painted. On Unix, one input reader separates geometry replies
+from keys and bracketed paste. This avoids multiple consumers competing for the
+terminal's input stream. After a frontend answers a size query, the reader probes
+its dimensions while waiting for input: some terminals update their visible grid
+before delivering the corresponding PTY size notification. Unsupported size
+queries fall back to the PTY dimensions. Cursor-position reports are required.
 
-struct Status;
+During a resize, the layout reserves eight horizontal cells to reduce the chance
+of another width change wrapping a freshly painted row. Full width is restored
+after 250 ms without another observed size change. This is headroom, **not a bound
+on how quickly a terminal can resize**. A timed-out report retains the current
+frame and is retried, rather than clearing the display or dropping pending keys.
 
-impl Component for Status {
-    fn render(&self, _: Size) -> Content {
-        Content {
-            lines: vec![Line::plain("Ready")],
-            cursor: None,
-        }
-    }
-}
+Call `Renderer::resize()` for resize events. While `resize_polling()` is true,
+poll input with a short timeout (maqi uses 16 ms), calling `refresh()` on timeout.
+Use `andiron::event::{read, poll}` together on the same thread as the renderer.
+The Unix reader supports UTF-8 text, ordinary editing/function keys and modifiers,
+and bracketed paste; mouse and enhanced keyboard protocols are not enabled.
+`TerminalSession` restores raw mode, wrapping, cursor visibility and paste mode
+when dropped. Other output must be written between editing sessions, since
+unrelated writes invalidate the renderer's coordinates.
 
-let editor = Editor::default();
-let status = Status;
-let components: [&dyn Component; 2] = [&editor, &status];
-// With a TerminalSession and Renderer: renderer.render(&components)?;
-```
-
-## Terminal regression tests
+## Regression tests and current limits
 
 ```sh
 cargo test -p andiron
 cargo test -p maqi
 ```
 
-Every `.th` file under `tests/scenarios/` is discovered automatically. A regression
-can be captured by adding a file with the terminal size, input/resize actions,
-and expected screen after each step. The test runner launches its own small
-andiron fixture in a PTY. In that fixture, Enter inserts a newline, Tab toggles
-two example supporting components, Escape dismisses them, and Ctrl-D exits.
-For one scenario, use `cargo test -p andiron --test terminal_scenarios -- resize_roundtrip`.
+andiron automatically discovers `.th` files in `tests/scenarios/`. Its PTY fixture
+uses Enter for a logical newline, Tab to toggle supporting components, Escape to
+dismiss them, and Ctrl-D to finish. `Arg "--submit"` makes Enter commit the input
+and start a new prompt, for native-scrollback tests.
 
-Scenarios cover width/height changes, the right margin, wide and combining
-characters, output taller than the screen, terminal scrollback, and attaching and
-removing components. A PTY test additionally checks the actual cursor coordinates
-and terminal-mode cleanup. maqi's integration scenarios exercise completion,
-continuation, history, submission, and pasting through the same renderer. The
-`completion_width_resize_without_input.th` regression starts at the bottom of the
-screen, opens completion once, then shrinks and expands repeatedly without typing;
-it also checks scrollback and editing after accepting a completion.
-`completion_navigation_and_resize.th` combines repeated selection movement,
-width changes, and accepting a completion. A separate maqi PTY test replays the
-output byte by byte to check cursor visibility and final position, rejects
-position queries during normal navigation, and rejects queries mid-frame even
-on resize. These transient behaviors are not observable in a final screen snapshot.
+Scenarios cover Unicode and the right margin, attaching/removing components,
+resizing, editing a bounded viewport, and committing the complete input to native
+scrollback. maqi scenarios also cover completion navigation, history, continuation,
+and pasting. The extreme-width scenarios resize from 80 columns to one and back
+in single-column steps without input between resizes. The history variant checks
+that previously submitted output survives. The overflow variant permits a whole
+frame's vertical translation, but rejects duplicate rows, stray text and gaps
+inside the frame. A byte-stream test checks synchronized painting and the native
+input cursor, which final screen snapshots alone cannot observe.
 
-These checks use termharness's Alacritty terminal model. This first implementation
-requires cursor-position reports and normal terminal autowrap. It does not
-reconstruct scrollback after a resize or expose off-screen input through an editor
-viewport: a cursor target above the screen is bounded to the top row, and changing
-an off-screen prefix reprints the full input. Editing arbitrary off-screen
-positions and preserving all scrollback across repeated resizing are not yet
-guaranteed. Terminal-specific reflow behavior needs additional validation.
+The scenarios use termharness's Alacritty model. They do not reproduce every
+frontend's resize timing. In particular, rapid repeated width changes in iTerm
+can still move part of the active frame into native scrollback before andiron
+repaints it. Standard cursor addressing cannot selectively erase that off-screen
+content without erasing history. The redesign is still under validation for this
+case; passing the model tests is not a claim that the iTerm duplication is fixed.

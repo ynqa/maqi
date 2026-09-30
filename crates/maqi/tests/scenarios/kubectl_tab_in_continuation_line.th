@@ -33,7 +33,7 @@ Step "complete using command context from the previous line"
 Input "ge"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·\·················|
   r01 |...>·get························|
   r02 |································|

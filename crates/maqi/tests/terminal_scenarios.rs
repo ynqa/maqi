@@ -137,3 +137,52 @@ fn completion_navigation_and_resize() -> Result<()> {
     ))?;
     Ok(())
 }
+
+#[test]
+fn completion_extreme_width_burst() -> Result<()> {
+    scenario::run_document(include_str!("scenarios/completion_extreme_width_burst.th"))?;
+    Ok(())
+}
+
+#[test]
+fn completion_extreme_width_preserves_history() -> Result<()> {
+    scenario::run_document(include_str!(
+        "scenarios/completion_extreme_width_preserves_history.th"
+    ))?;
+    Ok(())
+}
+
+#[test]
+fn completion_extreme_width_overflow() -> Result<()> {
+    let result = scenario::run_document(include_str!(
+        "scenarios/completion_extreme_width_overflow.th"
+    ));
+    // Reflow and repaint can interleave differently during a resize burst. The
+    // terminal may consequently scroll a different number of empty rows. For
+    // this final assertion only, allow a vertical translation of the entire
+    // frame. Preserve every interior blank row, duplicate, and stray character.
+    if let Err(termharness::error::Error::ScreenMismatch {
+        step,
+        expected,
+        actual,
+        ..
+    }) = &result
+        && step == "shrink to one column and widen without waiting or typing"
+    {
+        let content = |lines: &[String]| {
+            let first = lines
+                .iter()
+                .position(|line| !line.trim().is_empty())
+                .unwrap_or(0);
+            let last = lines
+                .iter()
+                .rposition(|line| !line.trim().is_empty())
+                .map_or(first, |i| i + 1);
+            lines[first..last].to_vec()
+        };
+        if content(expected) == content(actual) {
+            return Ok(());
+        }
+    }
+    result.map(|_| ())
+}

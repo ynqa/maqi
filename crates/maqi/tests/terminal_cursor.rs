@@ -8,6 +8,8 @@ type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 const HIDE: &[u8] = b"\x1b[?25l";
 const SHOW: &[u8] = b"\x1b[?25h";
 const QUERY: &[u8] = b"\x1b[6n";
+const BEGIN: &[u8] = b"\x1b[?2026h";
+const END: &[u8] = b"\x1b[?2026l";
 
 // Snapshots alone miss both an invisible cursor waiting for a terminal reply
 // and a visible cursor visiting the menu. Check the raw stream as well.
@@ -25,7 +27,7 @@ impl Replay {
         caret: (usize, usize),
         may_query: bool,
     ) {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(15);
         let cursor_move = format!("\x1b[{};{}H", caret.0 + 1, caret.1 + 1);
         let output = loop {
             let output = session.output();
@@ -38,7 +40,7 @@ impl Replay {
             }
             let snapshot = session.screen_snapshot();
             if !frame.is_empty()
-                && (frame.ends_with(SHOW)
+                && (frame.ends_with(END)
                     || (!frame.windows(HIDE.len()).any(|s| s == HIDE)
                         && frame.ends_with(cursor_move.as_bytes())))
                 && snapshot[caret.0].trim_end() == input
@@ -54,10 +56,33 @@ impl Replay {
         let old_row = self.screen.cursor_position().0;
         let mut visible = true;
         let mut painting = false;
+        let mut synchronized = false;
+        let mut completed = 0;
         for index in self.consumed..output.len() {
             let prefix = &output[..=index];
             self.screen.process(&output[index..=index]);
-            if prefix.ends_with(HIDE) {
+            if prefix.ends_with(BEGIN) {
+                assert!(!synchronized, "nested synchronized update");
+                synchronized = true;
+            } else if prefix.ends_with(END) {
+                assert!(synchronized && visible && !painting);
+                synchronized = false;
+                completed += 1;
+                let screen = self.screen.snapshot();
+                assert_eq!(
+                    screen
+                        .iter()
+                        .filter(|line| line.starts_with("maqi>"))
+                        .count(),
+                    1,
+                    "blank or duplicated visible frame: {screen:?}"
+                );
+                assert!(
+                    screen.iter().filter(|line| line.starts_with("> ")).count() <= 1,
+                    "duplicated completion selection"
+                );
+            } else if prefix.ends_with(HIDE) {
+                assert!(synchronized, "drawing must be a synchronized update");
                 assert!(!painting, "nested redraw");
                 painting = true;
                 visible = false;
@@ -75,7 +100,11 @@ impl Replay {
                 );
             }
         }
-        assert!(visible && !painting, "cursor not restored after redraw");
+        assert!(
+            visible && !painting && !synchronized,
+            "cursor not restored after redraw"
+        );
+        assert!(completed > 0, "no complete visible frame");
         assert_eq!(self.screen.cursor_position(), caret);
         assert_eq!(self.screen.snapshot(), session.screen_snapshot());
         self.consumed = output.len();

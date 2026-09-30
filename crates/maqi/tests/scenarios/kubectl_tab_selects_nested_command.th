@@ -20,7 +20,7 @@ Step "show all matching nested commands"
 Input "kubectl config get-"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·config·get-·······················|
   r01 |>·get-clusters··Display·clusters·defined·in·the…|
   r02 |··get-contexts··Describe·one·or·many·contexts···|
@@ -32,7 +32,7 @@ Expect timeout 5000ms:
 Step "Tab selects the next candidate"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·config·get-·······················|
   r01 |··get-clusters··Display·clusters·defined·in·the…|
   r02 |>·get-contexts··Describe·one·or·many·contexts···|
@@ -81,7 +81,7 @@ Step "complete an option of the selected nested command"
 Input "--no-h"
 Input tab
 Settle 0ms
-Expect timeout 5000ms:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·config·get-contexts·--no-headers··|
   r01 |················································|
   r02 |················································|

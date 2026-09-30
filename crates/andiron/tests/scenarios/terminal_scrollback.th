@@ -1,5 +1,6 @@
 Scenario "terminal_scrollback"
 Command "andiron-fixture"
+Arg "--submit"
 Terminal rows 3 cols 12
 Cursor row 3 col 1
 
@@ -27,26 +28,34 @@ Expect:
   r01 |...>·444444X|
   r02 |············|
 
-Step "scroll back to the original input"
-Scroll up 2
-Settle 0ms
-Expect:
-  r00 |maqi>·111111|
-  r01 |...>·222222·|
-  r02 |...>·333333·|
-
-Step "return to live output"
-Scroll down 2
-Settle 0ms
-Expect:
-  r00 |...>·333333·|
-  r01 |...>·444444X|
-  r02 |············|
-
-Step "continue typing without duplicating earlier lines"
+Step "continue editing the bounded viewport"
 Input "YZ"
 Settle 0ms
 Expect:
   r00 |...>·333333·|
   r01 |...>·444444X|
   r02 |YZ··········|
+
+Step "commit the complete input to native scrollback"
+Input enter
+Settle 0ms
+Expect:
+  r00 |...>·444444X|
+  r01 |YZ··········|
+  r02 |maqi>·······|
+
+Step "scroll back to the original committed input"
+Scroll up 3
+Settle 0ms
+Expect:
+  r00 |maqi>·111111|
+  r01 |...>·222222·|
+  r02 |...>·333333·|
+
+Step "return to the new prompt"
+Scroll down 3
+Settle 0ms
+Expect:
+  r00 |...>·444444X|
+  r01 |YZ··········|
+  r02 |maqi>·······|

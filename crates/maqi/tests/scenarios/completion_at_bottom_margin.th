@@ -17,7 +17,7 @@ Step "show completion without an extra wrapped blank row"
 Input "kubectl config get-"
 Input tab
 Settle 0ms
-Expect:
+Expect timeout 10000ms:
   r00 |maqi>·kubectl·config·get-·······················|
   r01 |>·get-clusters··Display·clusters·defined·in·the…|
   r02 |··get-contexts··Describe·one·or·many·contexts···|

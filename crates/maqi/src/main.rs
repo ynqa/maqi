@@ -19,6 +19,10 @@ fn main() -> anyhow::Result<()> {
         readline.render(&mut renderer)?;
 
         let action = loop {
+            if renderer.resize_polling() && !event::poll(std::time::Duration::from_millis(16))? {
+                readline.refresh(&mut renderer)?;
+                continue;
+            }
             let event = event::read()?;
             if matches!(event, event::Event::Resize(..)) {
                 renderer.resize();

@@ -6,301 +6,266 @@ use std::{
 use crossterm::{
     cursor, execute, queue,
     style::{ContentStyle, Print, PrintStyledContent},
-    terminal::{self, Clear, ClearType},
+    terminal::{
+        self, BeginSynchronizedUpdate, Clear, ClearType, DisableLineWrap, EnableLineWrap,
+        EndSynchronizedUpdate,
+    },
 };
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
-use crate::{Component, Size, component::display_text};
+use crate::{
+    Component, Size,
+    layout::{Frame, Layout},
+};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Glyph {
-    text: String,
-    style: ContentStyle,
+/// Ownership of an inline region on the normal terminal screen. Resizing
+/// invalidates its coordinates, not its contents: the old frame remains visible
+/// until an entire replacement, including the input cursor, is ready.
+enum Anchor {
+    Unmeasured,
+    Verified(u16),
+    Resized(u16),
+    Checking(u16),
 }
 
-#[derive(Default)]
-struct Frame {
-    glyphs: Vec<Glyph>,
-    cursor: usize,
-}
-
-impl Frame {
-    fn new(components: &[&dyn Component], size: Size) -> io::Result<Self> {
-        let mut frame = Self::default();
-        let mut has_line = false;
-        let mut cursor_set = false;
-        for component in components {
-            let content = component.render(size);
-            if content.cursor.is_some() && cursor_set {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "only one component may own the terminal cursor",
-                ));
-            }
-            for (row, line) in content.lines.iter().enumerate() {
-                if has_line {
-                    frame.glyphs.push(Glyph {
-                        text: "\n".into(),
-                        style: ContentStyle::default(),
-                    });
-                }
-                has_line = true;
-                let mut character = 0;
-                for span in &line.spans {
-                    for grapheme in span.text.graphemes(true) {
-                        if content
-                            .cursor
-                            .is_some_and(|c| c.line == row && c.character == character)
-                        {
-                            frame.cursor = frame.glyphs.len();
-                            cursor_set = true;
-                        }
-                        let text = display_text(grapheme);
-                        // Control representations (e.g. ^[) consist of multiple cells.
-                        for grapheme in text.graphemes(true) {
-                            frame.glyphs.push(Glyph {
-                                text: grapheme.to_owned(),
-                                style: span.style,
-                            });
-                        }
-                        character += grapheme.chars().count();
-                    }
-                }
-                if content
-                    .cursor
-                    .is_some_and(|c| c.line == row && c.character == character)
-                {
-                    frame.cursor = frame.glyphs.len();
-                    cursor_set = true;
-                }
-            }
-            if content.cursor.is_some() && !cursor_set {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "component cursor must be on a grapheme boundary in its content",
-                ));
-            }
+impl Anchor {
+    fn row(&self) -> u16 {
+        match *self {
+            Self::Unmeasured => 0,
+            Self::Verified(row) | Self::Resized(row) | Self::Checking(row) => row,
         }
-        // Materialize the next cell even when the input fills the rightmost
-        // column. This ordinary blank gives the native cursor its own cell.
-        if cursor_set && frame.cursor == frame.glyphs.len() {
-            frame.glyphs.push(Glyph {
-                text: " ".into(),
-                style: ContentStyle::default(),
-            });
-        }
-        Ok(frame)
-    }
-
-    /// Measure output for cursor addressing only. No terminal-height clipping,
-    /// editor viewport, or replacement for the terminal's scrollback is kept.
-    fn positions(&self, columns: u16) -> Vec<Position> {
-        let width = usize::from(columns.max(1));
-        let mut positions = Vec::with_capacity(self.glyphs.len() + 1);
-        let mut pos = Position::default();
-        for glyph in &self.glyphs {
-            if glyph.text == "\n" {
-                positions.push(pos);
-                pos.row += 1;
-                pos.column = 0;
-            } else {
-                let cells = UnicodeWidthStr::width(glyph.text.as_str()).min(width);
-                if cells > 0 && pos.column + cells > width {
-                    pos.row += 1;
-                    pos.column = 0;
-                }
-                positions.push(pos);
-                pos.column += cells;
-            }
-        }
-        positions.push(pos);
-        positions
     }
 }
 
-#[derive(Clone, Copy, Default)]
-struct Position {
-    row: usize,
-    column: usize,
-}
-
-/// Inline renderer on the normal terminal screen.
-///
-/// Unchanged prefixes stay in place, including text already scrolled away by the
-/// terminal. Changed suffixes are printed normally with CRLF at logical newlines.
-/// A resize clears the old frame at its reflowed position, then reprints the
-/// complete component output once the terminal dimensions have settled.
-/// Output and cursor restoration are written together, without querying the
-/// terminal mid-frame. While active, the renderer must own terminal output.
+/// An inline painter with a bounded editing viewport. Committed input uses
+/// normal terminal scrolling; uncommitted input and supporting components are
+/// repainted together, without a clearing-only frame or resize debounce.
 pub struct Renderer {
-    previous: Frame,
+    anchor: Anchor,
     size: Option<Size>,
-    origin: i64,
-    cursor_row: u16,
-    resize_pending: bool,
+    previous: Layout,
+    frame: Frame,
+    pty_size: Option<Size>,
+    refresh_until: Option<Instant>,
 }
 
 impl Renderer {
     pub fn new() -> io::Result<Self> {
-        if cursor::position()?.0 != 0 {
-            execute!(io::stdout(), Print("\r\n"))?;
-        }
         Ok(Self {
-            previous: Frame::default(),
+            anchor: Anchor::Unmeasured,
             size: None,
-            origin: 0,
-            cursor_row: 0,
-            resize_pending: false,
+            previous: Layout::default(),
+            frame: Frame::default(),
+            pty_size: None,
+            refresh_until: None,
         })
     }
 
-    /// Notify the renderer about a resize event, including a burst which ends
-    /// at the original size. Reading the final size alone cannot detect that.
     pub fn resize(&mut self) {
-        self.resize_pending = true;
+        self.anchor = Anchor::Resized(self.anchor.row());
+        self.refresh_until = Some(Instant::now() + Duration::from_millis(250));
+    }
+
+    pub fn resize_polling(&self) -> bool {
+        self.refresh_until.is_some()
+    }
+
+    pub fn refresh(&mut self, components: &[&dyn Component]) -> io::Result<()> {
+        if self
+            .refresh_until
+            .is_some_and(|until| Instant::now() >= until)
+        {
+            self.refresh_until = None;
+        }
+        if matches!(self.anchor, Anchor::Verified(_)) {
+            self.anchor = Anchor::Checking(self.anchor.row());
+        }
+        self.render(components)
     }
 
     pub fn render(&mut self, components: &[&dyn Component]) -> io::Result<()> {
-        let mut size = terminal_size()?;
-        let mut resized = self.resize_pending || self.size.is_some_and(|previous| previous != size);
-        let actual_row = loop {
-            // Normal edits and menu navigation use the position retained from
-            // the last frame. Only initial placement and reflow need a report.
-            if !resized && self.size.is_some() {
-                break self.cursor_row;
-            }
-            if resized {
-                size = settled_size(size)?;
-            }
-            let (_, row) = cursor::position()?;
-            let observed_size = terminal_size()?;
-            if observed_size == size {
-                break row;
-            }
-            size = observed_size;
-            resized = true;
-        };
-        let next = Frame::new(components, size)?;
-        let old_positions = self.previous.positions(size.columns);
-        let new_positions = next.positions(size.columns);
-        let reflowed_origin =
-            i64::from(actual_row) - old_positions[self.previous.cursor].row as i64;
-        let mut origin = if resized {
-            // Retain the drawing position, but make room before printing so a
-            // smaller terminal does not scroll another copy into history.
-            let last_origin = i64::from(size.rows - 1) - new_positions.last().unwrap().row as i64;
-            self.origin.clamp(0, last_origin.max(0))
-        } else if self.size.is_some() {
-            self.origin + i64::from(actual_row) - i64::from(self.cursor_row)
-        } else {
-            i64::from(actual_row)
-        };
-        // Terminal reflow can scroll the beginning away even if the input now
-        // fits. Reprint it from the top instead of retaining a stale origin.
-        let rebase = origin < 0 && new_positions.last().unwrap().row < usize::from(size.rows);
-        let changed = resized || rebase || self.previous.glyphs != next.glyphs;
-        let mut output = Vec::new();
-
-        if changed {
-            queue!(output, cursor::Hide)?;
-            let common = self
-                .previous
-                .glyphs
-                .iter()
-                .zip(&next.glyphs)
-                .take_while(|(a, b)| a == b)
-                .count();
-            // Reprint one preceding glyph to establish autowrap at boundaries.
-            let mut start = if resized || rebase {
-                0
-            } else {
-                common.saturating_sub(1)
+        let pty_size = terminal_size()?;
+        let mut size = self.size.unwrap_or(pty_size);
+        if self.pty_size.is_some_and(|old| old != pty_size) {
+            self.resize();
+        }
+        let mut origin = self.anchor.row();
+        let mut geometry_changed = matches!(self.anchor, Anchor::Unmeasured | Anchor::Resized(_));
+        if !matches!(self.anchor, Anchor::Verified(_)) {
+            let (actual_size, column, row) = match measure_geometry() {
+                Ok(report) => report,
+                Err(error) if error.kind() == io::ErrorKind::TimedOut && self.size.is_some() => {
+                    // Keep the last complete frame visible if the frontend is
+                    // busy. Retry from the input loop, without discarding keys.
+                    self.frame = Frame::new(components, size)?;
+                    self.resize();
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
             };
-            // A newline after a full row has its logical position one column
-            // past the margin. CUP cannot address that pending-wrap position:
-            // clamping it would erase the last cell without repainting it.
-            // Include the last printable glyph to establish the margin again.
-            while start > 0 && old_positions[start].column >= usize::from(size.columns) {
-                start -= 1;
+            if self.size.is_some_and(|old| old != actual_size) {
+                self.refresh_until = Some(Instant::now() + Duration::from_millis(250));
             }
-            let mut from = old_positions[start];
-            if origin + (from.row as i64) < 0 {
-                // The changed prefix has left the screen. Re-emit the full
-                // input from the top; do not invent a clipped editor viewport.
-                start = 0;
-                from = Position::default();
-                origin = 0;
+            size = actual_size;
+            if self.previous.rows.is_empty() {
+                origin = row;
+                if column != 0 {
+                    execute!(io::stdout(), Print("\r\n"))?;
+                    origin = (row + 1).min(size.rows - 1);
+                }
+            } else {
+                let caret = self.previous.reflowed_cursor(size.columns);
+                let distance = if usize::from(column) == caret.column {
+                    caret.row
+                } else {
+                    // The terminal clamped a cursor whose row left the screen.
+                    // In that case the report bounds the old frame's bottom,
+                    // rather than identifying the logical editing position.
+                    self.previous
+                        .reflowed_height(size.columns)
+                        .saturating_sub(1)
+                };
+                origin = row
+                    .saturating_sub(distance.min(usize::from(u16::MAX)) as u16)
+                    .min(origin);
             }
-            if resized {
-                // Reflow may have moved the OLD frame above the stored origin.
-                // Erase it there before drawing at the retained position. The
-                // erase origin and the new drawing origin are not interchangeable.
+        }
+        // Leave horizontal headroom while the frontend is moving. The terminal
+        // may resize again between its geometry reply and processing this frame.
+        // Restore the full width once the resize stream has become quiet.
+        let drawing_size = Size {
+            columns: if self.resize_polling() {
+                size.columns.saturating_sub(8).max(1)
+            } else {
+                size.columns
+            },
+            rows: size.rows,
+        };
+        let frame = Frame::new(components, drawing_size)?;
+        let layout = Layout::new(&frame, drawing_size);
+        geometry_changed |= self.size != Some(size) || origin != self.anchor.row();
+        if !geometry_changed && layout == self.previous {
+            self.frame = frame;
+            self.anchor = Anchor::Verified(origin);
+            self.pty_size = Some(pty_size);
+            return Ok(());
+        }
+        let mut output = Vec::new();
+        queue!(
+            output,
+            BeginSynchronizedUpdate,
+            cursor::Hide,
+            DisableLineWrap
+        )?;
+        // Clear the old region before scrolling for space. Only committed
+        // output above it may enter scrollback, never obsolete menu rows.
+        if geometry_changed {
+            clear_region(&mut output, origin, size.rows)?;
+        }
+        let extra =
+            (usize::from(origin) + layout.rows.len()).saturating_sub(usize::from(size.rows));
+        if extra != 0 {
+            if !geometry_changed {
+                clear_region(&mut output, origin, size.rows)?;
+            }
+            geometry_changed = true;
+            queue!(output, cursor::MoveTo(0, size.rows - 1))?;
+            for _ in 0..extra {
+                queue!(output, Print("\r\n"))?;
+            }
+            origin = origin.saturating_sub(extra as u16);
+        }
+        if !geometry_changed {
+            for index in layout.rows.len()..self.previous.rows.len() {
                 queue!(
                     output,
-                    cursor::MoveTo(0, screen_row(reflowed_origin.min(origin), 0, size.rows)),
-                    Clear(ClearType::FromCursorDown),
+                    cursor::MoveTo(0, origin + index as u16),
+                    Clear(ClearType::CurrentLine)
                 )?;
             }
-            queue!(
-                output,
-                cursor::MoveTo(
-                    from.column.min(usize::from(size.columns - 1)) as u16,
-                    screen_row(origin, from.row, size.rows)
-                ),
-                Clear(ClearType::FromCursorDown)
-            )?;
-            for glyph in &next.glyphs[start..] {
-                if glyph.text == "\n" {
-                    queue!(output, Print("\r\n"))?;
-                } else if glyph.style == ContentStyle::default() {
-                    queue!(output, Print(&glyph.text))?;
-                } else {
-                    queue!(output, PrintStyledContent(glyph.style.apply(&glyph.text)))?;
-                }
-            }
-            // Normal wrapping/CRLF scrolls only when the last output row passes
-            // the bottom margin. Account for that locally, so returning to the
-            // input does not require a round trip with the cursor on the menu.
-            // A full final column is still on its row (deferred autowrap).
-            origin =
-                origin.min(i64::from(size.rows - 1) - new_positions.last().unwrap().row as i64);
         }
-
-        let caret = new_positions[next.cursor];
+        for (index, row) in layout.rows.iter().enumerate() {
+            if !geometry_changed && self.previous.rows.get(index) == Some(row) {
+                continue;
+            }
+            queue!(output, cursor::MoveTo(0, origin + index as u16))?;
+            if !geometry_changed {
+                queue!(output, Clear(ClearType::CurrentLine))?;
+            }
+            paint_row(&mut output, row)?;
+        }
         queue!(
             output,
             cursor::MoveTo(
-                caret.column.min(usize::from(size.columns - 1)) as u16,
-                screen_row(origin, caret.row, size.rows),
-            )
+                layout.cursor.column as u16,
+                origin + layout.cursor.row as u16
+            ),
+            EnableLineWrap,
+            cursor::Show,
+            EndSynchronizedUpdate
         )?;
-        if changed {
-            queue!(output, cursor::Show)?;
-        }
-        // Include the native cursor's final position and visibility in the same
-        // output buffer as the text. Never flush or wait for input mid-frame.
-        let mut stdout = io::stdout().lock();
-        if let Err(error) = stdout.write_all(&output).and_then(|()| stdout.flush()) {
-            let _ = execute!(stdout, cursor::Show);
-            self.size = None;
-            return Err(error);
-        }
-        self.resize_pending = false;
-        self.previous = next;
+        write_frame(&output)?;
+        self.anchor = Anchor::Verified(origin);
         self.size = Some(size);
-        self.origin = origin;
-        self.cursor_row = screen_row(origin, caret.row, size.rows);
+        self.pty_size = Some(pty_size);
+        self.previous = layout;
+        self.frame = frame;
         Ok(())
     }
 
-    /// Call after rendering the editor at its end, without auxiliary components.
+    /// Commit the complete logical input once, including parts outside the
+    /// editing viewport, and leave it in the terminal's native scrollback.
     pub fn finish(&mut self) -> io::Result<()> {
-        execute!(io::stdout(), Print("\r\n"))?;
-        self.previous = Frame::default();
+        let size = terminal_size()?;
+        let origin = self.anchor.row().min(size.rows - 1);
+        let mut output = Vec::new();
+        queue!(
+            output,
+            BeginSynchronizedUpdate,
+            cursor::Hide,
+            EnableLineWrap
+        )?;
+        clear_region(&mut output, origin, size.rows)?;
+        queue!(output, cursor::MoveTo(0, origin))?;
+        let end = self.frame.focused_end.unwrap_or(self.frame.glyphs.len());
+        for glyph in &self.frame.glyphs[..end] {
+            if glyph.text == "\n" {
+                queue!(output, Print("\r\n"))?;
+            } else if glyph.style == ContentStyle::default() {
+                queue!(output, Print(&glyph.text))?;
+            } else {
+                queue!(output, PrintStyledContent(glyph.style.apply(&glyph.text)))?;
+            }
+        }
+        queue!(output, Print("\r\n"), cursor::Show, EndSynchronizedUpdate)?;
+        write_frame(&output)?;
+        self.anchor = Anchor::Unmeasured;
         self.size = None;
+        self.previous = Layout::default();
+        self.frame = Frame::default();
         Ok(())
     }
+}
+
+fn clear_region(output: &mut Vec<u8>, origin: u16, rows: u16) -> io::Result<()> {
+    // Per-row erase avoids terminal-specific clear-screen-to-scrollback
+    // behavior and clears wrapping metadata along with the old cell contents.
+    for row in origin..rows {
+        queue!(
+            output,
+            cursor::MoveTo(0, row),
+            Clear(ClearType::CurrentLine)
+        )?;
+    }
+    Ok(())
+}
+
+fn write_frame(output: &[u8]) -> io::Result<()> {
+    let mut stdout = io::stdout().lock();
+    let result = stdout.write_all(output).and_then(|()| stdout.flush());
+    if result.is_err() {
+        let _ = execute!(stdout, EnableLineWrap, cursor::Show, EndSynchronizedUpdate);
+    }
+    result
 }
 
 fn terminal_size() -> io::Result<Size> {
@@ -311,60 +276,28 @@ fn terminal_size() -> io::Result<Size> {
     })
 }
 
-fn settled_size(mut size: Size) -> io::Result<Size> {
-    // While dragging a window edge, another reflow can occur between measuring
-    // the cursor and writing the frame. Keep the existing output during the
-    // burst and repaint once the geometry has been quiet for a short interval.
-    let mut since = Instant::now();
-    while since.elapsed() < Duration::from_millis(200) {
-        std::thread::sleep(Duration::from_millis(5));
-        let next = terminal_size()?;
-        if next != size {
-            size = next;
-            since = Instant::now();
+fn measure_geometry() -> io::Result<(Size, u16, u16)> {
+    crate::event::geometry()
+}
+
+fn paint_row(output: &mut Vec<u8>, row: &[crate::layout::Glyph]) -> io::Result<()> {
+    let mut start = 0;
+    while start < row.len() {
+        let style = row[start].style;
+        let mut end = start + 1;
+        while end < row.len() && row[end].style == style {
+            end += 1;
         }
+        let text: String = row[start..end]
+            .iter()
+            .map(|glyph| glyph.text.as_str())
+            .collect();
+        if style == ContentStyle::default() {
+            queue!(output, Print(text))?;
+        } else {
+            queue!(output, PrintStyledContent(style.apply(text)))?;
+        }
+        start = end;
     }
-    Ok(size)
-}
-
-fn screen_row(origin: i64, row: usize, rows: u16) -> u16 {
-    (origin + row as i64).clamp(0, i64::from(rows.saturating_sub(1))) as u16
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Editor;
-
-    #[test]
-    fn a_leading_combining_character_does_not_invalidate_the_editor_cursor() {
-        let mut editor = Editor::default();
-        editor.insert_text("\u{301}a");
-        editor.move_to(0);
-        let frame = Frame::new(
-            &[&editor],
-            Size {
-                columns: 20,
-                rows: 3,
-            },
-        )
-        .unwrap();
-        let positions = frame.positions(20);
-        assert_eq!(positions[frame.cursor].column, 6);
-    }
-
-    #[test]
-    fn multiple_cursor_owners_are_rejected() {
-        let editor = Editor::default();
-        let error = Frame::new(
-            &[&editor, &editor],
-            Size {
-                columns: 20,
-                rows: 3,
-            },
-        )
-        .err()
-        .unwrap();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    }
+    Ok(())
 }
